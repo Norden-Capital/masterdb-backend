@@ -31,6 +31,11 @@
 		<embedded-postgres.version>2.1.0</embedded-postgres.version>
 		<embedded-postgres-binaries.version>16.15.0</embedded-postgres-binaries.version>
 		<springdoc.version>3.2.0</springdoc.version>
+		<!-- ./mvnw spring-boot:run starts with the "local" profile
+		     (application-local.yml: API docs on). Only the Maven plugin reads this;
+		     the jar in the Docker image never sees it. Override with
+		     -Dspring-boot.run.profiles=... -->
+		<spring-boot.run.profiles>local</spring-boot.run.profiles>
 	</properties>
 	<dependencies>
 		<dependency>

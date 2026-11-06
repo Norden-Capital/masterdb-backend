@@ -51,6 +51,10 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/masterdb
       - SPRING_DATASOURCE_USERNAME=masterdb
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-masterdb-local-dev}
+      # Swagger UI and the OpenAPI JSON stay off on the server: they would show
+      # the whole API to anyone. Already the default in application.yml; set
+      # here too so a changed default can never switch them on in production.
+      - APP_DOCS_ENABLED=false
 
       # SPRING_JPA_HIBERNATE_DDL_AUTO is deliberately absent. Environment
       # variables override application.yml, so setting it here would put

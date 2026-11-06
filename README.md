@@ -19,11 +19,28 @@ Start Postgres (and optionally pgAdmin) with Docker, then the app on the host:
 
 ```bash
 docker compose up -d db          # Postgres on 127.0.0.1:5432
-./mvnw spring-boot:run           # API on http://localhost:8080
+./mvnw spring-boot:run           # API on http://localhost:8080 (profile "local")
 curl http://localhost:8080/actuator/health
 ```
 
 `docker compose up -d pgadmin` opens pgAdmin on http://localhost:5050 (local only).
+
+### API docs (local only)
+
+Swagger UI and the OpenAPI JSON are **off by default and always off on the server**
+(`docker-compose.yml` sets `APP_DOCS_ENABLED=false`). There, every docs path answers
+`404` with the normal error body, as if it did not exist.
+
+`./mvnw spring-boot:run` starts with the `local` profile (`application-local.yml`, set in
+`pom.xml` as `spring-boot.run.profiles`), which switches them on:
+
+| What | URL |
+| --- | --- |
+| Swagger UI | http://localhost:8080/api/docs |
+| OpenAPI JSON | http://localhost:8080/api/v3/api-docs |
+
+Running the jar some other way (IDE, `java -jar`): add the profile
+(`--spring.profiles.active=local`) or set `APP_DOCS_ENABLED=true`.
 
 ### Configuration
 
@@ -32,6 +49,7 @@ curl http://localhost:8080/actuator/health
 | `SPRING_DATASOURCE_URL` | `jdbc:postgresql://localhost:5432/masterdb` |
 | `SPRING_DATASOURCE_USERNAME` | `masterdb` |
 | `SPRING_DATASOURCE_PASSWORD` | `masterdb-local-dev` |
+| `APP_DOCS_ENABLED` | `false` (`true` in the `local` profile) |
 
 Schema changes go in `src/main/resources/db/migration` as Flyway scripts
 (`V1__description.sql`, ...). Hibernate only validates the schema.

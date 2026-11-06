@@ -54,11 +54,13 @@ management:
         include: health
 
 # API docs. Swagger UI is served by DocsController at /api/docs (no redirect);
-# the OpenAPI JSON lives under /api like every other app endpoint. Public for
-# now; set APP_DOCS_ENABLED=false to switch both off once auth exists.
+# the OpenAPI JSON lives under /api like every other app endpoint. OFF unless
+# switched on: the `local` profile (application-local.yml, active for
+# ./mvnw spring-boot:run) or APP_DOCS_ENABLED=true. When off, every docs path
+# answers 404 problem+json (DocsDisabledConfig).
 app:
   docs:
-    enabled: ${APP_DOCS_ENABLED:true}
+    enabled: ${APP_DOCS_ENABLED:false}
 
 springdoc:
   api-docs:

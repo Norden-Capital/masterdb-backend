@@ -1,0 +1,8 @@
+# Local development only. `./mvnw spring-boot:run` activates this profile
+# (spring-boot.run.profiles in pom.xml). Production runs the jar from the
+# Docker image without it, so nothing here reaches the server.
+
+# API docs at http://localhost:8080/api/docs (off by default, see application.yml).
+app:
+  docs:
+    enabled: true
