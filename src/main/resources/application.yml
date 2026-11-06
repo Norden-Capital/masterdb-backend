@@ -21,9 +21,30 @@ spring:
       ddl-auto: validate
     open-in-view: false
 
+  # JSON (Jackson 3, so the feature maps are the tools.jackson.* ones).
+  # Dates as ISO-8601 strings in UTC, never numeric timestamps; null fields
+  # are left out. Use Instant in DTOs.
+  jackson:
+    time-zone: UTC
+    default-property-inclusion: non_null
+    datatype:
+      datetime:
+        write-dates-as-timestamps: false
+        write-durations-as-timestamps: false
+
 server:
   # Caddy on the host terminates TLS and forwards to 127.0.0.1:8080.
   forward-headers-strategy: native
+  # /error is answered by ProblemErrorController (problem+json), never an HTML page.
+  error:
+    whitelabel:
+      enabled: false
+
+# Every log line carries the request id ("-" outside a request), from the
+# MDC key set by RequestIdFilter. Slots into Boot's default pattern.
+logging:
+  pattern:
+    correlation: "[%X{requestId:--}] "
 
 # Only /actuator/health is reachable. The deploy waits on it.
 management:
