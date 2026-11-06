@@ -54,6 +54,8 @@ Running the jar some other way (IDE, `java -jar`): add the profile
 | `APP_CORS_ALLOWED_ORIGINS` | `https://db.nordencapital.ca` (the `local` profile adds `http://localhost:3000`) |
 | `BOOTSTRAP_OWNER_EMAIL`, `BOOTSTRAP_OWNER_PASSWORD`, `BOOTSTRAP_OWNER_NAME` | none, optional: the first account (see "Users & owner bootstrap"). Unset = no account and a warning |
 | `ENCRYPTION_KEY` | none: **required in production** (64 hex characters; encrypts 2FA secrets; the app refuses to start without it). In the `local` profile, unset = a random key per run. **Never change it once set** |
+| `RESEND_API_KEY` | none, optional: emails (invitations, password resets) through Resend. Unset = the app runs and every email is a WARN line instead. The `local` profile and the tests never send |
+| `APP_MAIL_FROM` | `MasterDB <no-reply@nordencapital.ca>` (the domain is verified in Resend) |
 | `APP_FRONTEND_URL` | `https://db.nordencapital.ca` (`local`: `http://localhost:3000`): the website, for links in emails |
 | `APP_AUTH_SESSION_IDLE_TIMEOUT`, `APP_AUTH_SESSION_ABSOLUTE_TIMEOUT` | `12h`, `7d` (see "Authentication") |
 | `APP_AUTH_LOCKOUT_MAX_ATTEMPTS`, `APP_AUTH_LOCKOUT_DURATION` | `5`, `15m` |
@@ -236,6 +238,20 @@ reset calls share a per-address rate limit (`link` bucket, 10/min, 50/h).
 | `POST /api/v1/auth/password/forgot` `{email}` | **always** 202 with the same message, account or not. Only an ACTIVE account gets an email, at most one a minute; the email leaves after the request, off its thread (`app.mail.async`), so the timing does not tell either |
 | `POST /api/v1/auth/password/reset/check` `{token}` | 200 `{expiresAt}` or 410 `LINK_INVALID` |
 | `POST /api/v1/auth/password/reset` `{token, password}` | 204; the link (30 min, `app.auth.reset-ttl`) works once, the newest one only; **every session ends**, a lock is lifted. It does not sign in, and never skips 2FA |
+
+#### Email (Resend)
+
+`mail/`: `AccountMails` builds the invite and reset emails (clean HTML + text, no images,
+no tracking, times in Toronto time); `MailConfig` picks the sender:
+
+| Where | Sender | What happens |
+| --- | --- | --- |
+| production with `RESEND_API_KEY` | `ResendMailSender` | `POST https://api.resend.com/emails`; success = INFO `email sent: to=j***@... id=...`; failure = one ERROR line with status and Resend's error name, never the key, body, link or Resend's message |
+| production without the key | `LogMailSender` (WARN) | app starts; WARN at startup and `email not sent (RESEND_API_KEY not set) ... link=https://.../accept-invite#AbCd…` per email |
+| `local` profile | `LogMailSender` | nothing sent; the **full** link is logged so you can click it |
+| tests | `LogMailSender` / a capturing test sender | nothing sent; link token masked |
+
+Sending never throws: an invite is created even if its email fails, and can be resent.
 
 #### Login failures
 

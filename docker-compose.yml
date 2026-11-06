@@ -61,6 +61,8 @@ services:
       # Key for 2FA secrets at rest (SecretCipher). No fallback: empty = the
       # backend refuses to start.
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      # Emails through Resend (optional): empty = emails are only logged.
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
 
       # The first account, the Owner (OwnerBootstrap): used only while the users
       # table is empty, ignored forever after. Optional, from the .env the deploy

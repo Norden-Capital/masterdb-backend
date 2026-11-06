@@ -13,4 +13,5 @@ app:
     required: false
   # Emails inline, so tests can read them right after the request.
   mail:
+    enabled: false
     async: false

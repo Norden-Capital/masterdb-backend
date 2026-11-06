@@ -120,9 +120,16 @@ app:
   # The website, for links in emails (invite, password reset).
   frontend-url: ${APP_FRONTEND_URL:https://db.nordencapital.ca}
 
-  # Emails (mail/). Without a provider they are only logged, with the link's
-  # token masked; `log-links: true` (local profile only) prints the full link.
+  # Emails (mail/), sent through Resend's HTTP API. RESEND_API_KEY is a GitHub
+  # secret written to the server's .env; OPTIONAL: without it the app starts and
+  # each email is a WARN line instead (link token masked). `enabled: false`
+  # (local profile, tests) never sends; `log-links: true` (local only) prints
+  # the full link so a developer can click it.
   mail:
+    enabled: true
+    from: ${APP_MAIL_FROM:MasterDB <no-reply@nordencapital.ca>}
+    resend:
+      api-key: ${RESEND_API_KEY:}
     log-links: false
     # Reset emails leave after the request, off its thread, so the answer to
     # "forgot password" takes the same time whether the account exists.

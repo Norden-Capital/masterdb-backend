@@ -121,6 +121,8 @@ jobs:
           PROXY_SECRET: ${{ secrets.PROXY_SECRET }}
           # Encrypts 2FA secrets at rest (64 hex characters). Required.
           ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          # Optional: emails through Resend. Empty = the app runs, emails are only logged.
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           # Optional: the first account, see the .env step below.
           BOOTSTRAP_OWNER_EMAIL: ${{ secrets.BOOTSTRAP_OWNER_EMAIL }}
           BOOTSTRAP_OWNER_PASSWORD: ${{ secrets.BOOTSTRAP_OWNER_PASSWORD }}
@@ -130,7 +132,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: POSTGRES_PASSWORD,PROXY_SECRET,ENCRYPTION_KEY,BOOTSTRAP_OWNER_EMAIL,BOOTSTRAP_OWNER_PASSWORD,BOOTSTRAP_OWNER_NAME,GHCR_TOKEN
+          envs: POSTGRES_PASSWORD,PROXY_SECRET,ENCRYPTION_KEY,RESEND_API_KEY,BOOTSTRAP_OWNER_EMAIL,BOOTSTRAP_OWNER_PASSWORD,BOOTSTRAP_OWNER_NAME,GHCR_TOKEN
           script: |
             set -e
 
@@ -176,6 +178,7 @@ jobs:
             POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
             PROXY_SECRET=${PROXY_SECRET}
             ENCRYPTION_KEY=${ENCRYPTION_KEY}
+            RESEND_API_KEY=${RESEND_API_KEY}
             BOOTSTRAP_OWNER_EMAIL='${BOOTSTRAP_OWNER_EMAIL}'
             BOOTSTRAP_OWNER_PASSWORD='${BOOTSTRAP_OWNER_PASSWORD}'
             BOOTSTRAP_OWNER_NAME='${BOOTSTRAP_OWNER_NAME}'

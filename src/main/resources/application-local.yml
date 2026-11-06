@@ -30,4 +30,5 @@ app:
   # (no email is sent locally).
   frontend-url: http://localhost:3000
   mail:
+    enabled: false
     log-links: true

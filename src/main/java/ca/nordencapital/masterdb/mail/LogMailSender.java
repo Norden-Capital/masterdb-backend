@@ -18,17 +18,24 @@ public class LogMailSender implements MailSender {
 
     private final boolean showLinks;
     private final String reason;
+    private final boolean warn;
 
-    public LogMailSender(boolean showLinks, String reason) {
+    /** @param warn log at WARN (a real email was expected but cannot leave), otherwise INFO */
+    public LogMailSender(boolean showLinks, String reason, boolean warn) {
         this.showLinks = showLinks;
         this.reason = reason;
+        this.warn = warn;
     }
 
     @Override
     public boolean send(MailMessage message, String linkForLog) {
         String link = linkForLog == null ? "-" : showLinks ? linkForLog : maskLink(linkForLog);
-        log.info("email not sent ({}): to={} subject=\"{}\" link={}", reason, Emails.mask(message.to()),
-                message.subject(), link);
+        String line = "email not sent ({}): to={} subject=\"{}\" link={}";
+        if (warn) {
+            log.warn(line, reason, Emails.mask(message.to()), message.subject(), link);
+        } else {
+            log.info(line, reason, Emails.mask(message.to()), message.subject(), link);
+        }
         return false;
     }
 
