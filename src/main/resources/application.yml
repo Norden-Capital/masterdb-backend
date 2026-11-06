@@ -73,6 +73,16 @@ app:
     secret: ${PROXY_SECRET:}
     required: true
 
+  # The first account, the Owner (auth/bootstrap/OwnerBootstrap). Read once at
+  # startup and used only if the users table is empty; ignored forever after.
+  # GitHub secrets written to the server's .env by the deploy. NO defaults on
+  # purpose: unset = no account and a WARN line, never a fallback password.
+  bootstrap:
+    owner:
+      email: ${BOOTSTRAP_OWNER_EMAIL:}
+      password: ${BOOTSTRAP_OWNER_PASSWORD:}
+      name: ${BOOTSTRAP_OWNER_NAME:}
+
   # Browsers may call this API only from these sites (CorsConfig).
   # Comma-separated. The `local` profile adds http://localhost:3000.
   cors:

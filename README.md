@@ -52,6 +52,7 @@ Running the jar some other way (IDE, `java -jar`): add the profile
 | `APP_DOCS_ENABLED` | `false` (`true` in the `local` profile) |
 | `PROXY_SECRET` | none: **required in production** (the app refuses to start without it, or with under 32 characters). In the `local` profile, unset = check off |
 | `APP_CORS_ALLOWED_ORIGINS` | `https://db.nordencapital.ca` (the `local` profile adds `http://localhost:3000`) |
+| `BOOTSTRAP_OWNER_EMAIL`, `BOOTSTRAP_OWNER_PASSWORD`, `BOOTSTRAP_OWNER_NAME` | none, optional: the first account (see "Users & owner bootstrap"). Unset = no account and a warning |
 
 ### Only the website may call the API
 
@@ -73,6 +74,52 @@ To try the check locally, set `PROXY_SECRET` before `./mvnw spring-boot:run`.
 `web/security/CorsConfig` lets browsers call the API only from
 `APP_CORS_ALLOWED_ORIGINS` (GET, POST, PUT, PATCH, DELETE, credentials allowed for the
 M1 login cookie). Refusals are 403 problem+json.
+
+### Users & owner bootstrap
+
+People who sign in live in `users` (`V1__users.sql`, code in `auth/`). Login, 2FA,
+permissions and invites come later, each with its own migration.
+
+| Column | Rule |
+| --- | --- |
+| `id` | bigint identity, internal only (joins). Never in the API |
+| `public_id` | random uuid: the only id the API ever shows |
+| `email` | stored trimmed + lowercased; unique index on `lower(email)`, so `Jane@X.com` and `jane@x.com` can never both exist, even when written by hand in SQL. Chosen over `citext`: no extension to install, and Hibernate's schema validation understands varchar |
+| `full_name` | required |
+| `password_hash` | `{bcrypt}$2a$12$...`; null only while invited. An `ACTIVE` account must have one (check constraint) |
+| `status` | `ACTIVE` / `INVITED` / `DISABLED` (check constraint) |
+| `is_owner` | at most one row, by a partial unique index; the Owner must be `ACTIVE`. The Owner sees everything; other people will get per-user grants (modules × actions) in a separate table |
+| `failed_login_attempts`, `locked_until`, `last_login_at` | for the login step |
+| `created_at`, `updated_at` | timestamptz, `Instant` in Java |
+
+**Passwords** (`auth/password/PasswordConfig`): only `spring-security-crypto`, not the
+full Spring Security starter yet. A `DelegatingPasswordEncoder` whose default is BCrypt
+cost 12: every hash starts with `{bcrypt}`, so a stronger algorithm (Argon2id) can be
+added later and old hashes keep working. BCrypt over Argon2id for now: no extra
+BouncyCastle dependency and no per-login memory budget to tune next to Postgres, for a
+few staff accounts that also have mandatory 2FA. BCrypt uses at most 72 bytes of a
+password. A hash with an unknown prefix never matches (no exception).
+
+**The first Owner** (`auth/bootstrap/OwnerBootstrap`) is created at startup when **all**
+of these hold:
+- the `users` table is empty (otherwise the only log line is `bootstrap skipped: users exist`, and the variables are ignored for good);
+- `BOOTSTRAP_OWNER_EMAIL` and `BOOTSTRAP_OWNER_PASSWORD` are set (otherwise a WARN line and no account; there is **no default password**);
+- the email looks valid and the password has at least 14 characters (and at most 72 bytes); otherwise an ERROR line and no account.
+
+`BOOTSTRAP_OWNER_NAME` is optional (default `Owner`). The account is `ACTIVE` and the
+Owner. It runs in one transaction behind a Postgres advisory lock, so two instances
+starting together create one Owner; the unique indexes back that up. The password is
+never logged; the email only masked: `owner created: j***@nordencapital.ca (id <uuid>)`.
+
+On the server the three values are GitHub secrets that the deploy writes to
+`/opt/masterdb/.env` (single-quoted, so the deploy refuses values containing `'`, `\`
+or a line break) and `docker-compose.yml` passes to the container. They are optional:
+unlike `PROXY_SECRET`, an empty value does not stop the deploy, because the password
+secret should be deleted once the Owner exists. After that, the next deploy removes it
+from the server's `.env` too.
+
+Locally: set the three variables before `./mvnw spring-boot:run` against an empty local
+database (`docker compose up -d db`), or create nothing and see the warning.
 
 Schema changes go in `src/main/resources/db/migration` as Flyway scripts
 (`V1__description.sql`, ...). Hibernate only validates the schema.
@@ -337,3 +384,5 @@ image to `ghcr.io/norden-capital/masterdb-backend`, then deploy over SSH to
 `/opt/masterdb` on the VPS. The server is prepared once with `deploy/vps-setup.sh`.
 
 Repository secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `POSTGRES_PASSWORD`, `PROXY_SECRET`.
+Optional: `BOOTSTRAP_OWNER_EMAIL`, `BOOTSTRAP_OWNER_NAME`, `BOOTSTRAP_OWNER_PASSWORD`
+(the first account; delete the password one once the Owner exists).

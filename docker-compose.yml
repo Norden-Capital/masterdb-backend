@@ -59,6 +59,14 @@ services:
       # deploy writes; no fallback on purpose: empty = the backend refuses to start.
       - PROXY_SECRET=${PROXY_SECRET:-}
 
+      # The first account, the Owner (OwnerBootstrap): used only while the users
+      # table is empty, ignored forever after. Optional, from the .env the deploy
+      # writes. No fallback on purpose: unset = no account and a warning in the
+      # log, never a default password.
+      - BOOTSTRAP_OWNER_EMAIL=${BOOTSTRAP_OWNER_EMAIL:-}
+      - BOOTSTRAP_OWNER_PASSWORD=${BOOTSTRAP_OWNER_PASSWORD:-}
+      - BOOTSTRAP_OWNER_NAME=${BOOTSTRAP_OWNER_NAME:-}
+
       # SPRING_JPA_HIBERNATE_DDL_AUTO is deliberately absent. Environment
       # variables override application.yml, so setting it here would put
       # Hibernate back in charge of the schema and undo `ddl-auto: validate`,

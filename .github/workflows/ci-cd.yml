@@ -119,12 +119,16 @@ jobs:
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           PROXY_SECRET: ${{ secrets.PROXY_SECRET }}
+          # Optional: the first account, see the .env step below.
+          BOOTSTRAP_OWNER_EMAIL: ${{ secrets.BOOTSTRAP_OWNER_EMAIL }}
+          BOOTSTRAP_OWNER_PASSWORD: ${{ secrets.BOOTSTRAP_OWNER_PASSWORD }}
+          BOOTSTRAP_OWNER_NAME: ${{ secrets.BOOTSTRAP_OWNER_NAME }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: POSTGRES_PASSWORD,PROXY_SECRET,GHCR_TOKEN
+          envs: POSTGRES_PASSWORD,PROXY_SECRET,BOOTSTRAP_OWNER_EMAIL,BOOTSTRAP_OWNER_PASSWORD,BOOTSTRAP_OWNER_NAME,GHCR_TOKEN
           script: |
             set -e
 
@@ -137,12 +141,38 @@ jobs:
             # with a clear message instead of a failed health check.
             [ -n "$PROXY_SECRET" ] || { echo "::error::PROXY_SECRET is empty — add it under Settings > Secrets > Actions (same value as PROXY_SECRET in Vercel)"; exit 1; }
 
+            # BOOTSTRAP_OWNER_* create the first account, the Owner, and only on an
+            # empty database (OwnerBootstrap); once any user exists they are ignored.
+            # OPTIONAL, so deliberately no "fail if empty" guard like the two above:
+            # after the first deploy the password secret should be deleted, and every
+            # later deploy must still go through. Empty = the backend logs a warning
+            # (or "bootstrap skipped: users exist") and runs normally.
+            # They are written single-quoted, so compose takes $, #, spaces literally.
+            # A quote, a backslash or a line break would break that: stop with a clear
+            # message rather than write a broken .env. The value is never printed.
+            refuse_unsafe() {
+              case "$2" in
+                *"'"*|*'\'*) bad=1 ;;
+                *) bad=$(printf '%s' "$2" | wc -l) ;;
+              esac
+              if [ "$bad" -ne 0 ]; then
+                echo "::error::$1 contains a quote ('), a backslash or a line break, which the server's .env cannot carry. Choose a value without them and set the secret again."
+                exit 1
+              fi
+            }
+            refuse_unsafe BOOTSTRAP_OWNER_EMAIL "$BOOTSTRAP_OWNER_EMAIL"
+            refuse_unsafe BOOTSTRAP_OWNER_PASSWORD "$BOOTSTRAP_OWNER_PASSWORD"
+            refuse_unsafe BOOTSTRAP_OWNER_NAME "$BOOTSTRAP_OWNER_NAME"
+
             # docker compose reads this automatically from the working directory.
             # umask 077: only the deploy user can read it.
             umask 077
             cat > .env <<EOF
             POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
             PROXY_SECRET=${PROXY_SECRET}
+            BOOTSTRAP_OWNER_EMAIL='${BOOTSTRAP_OWNER_EMAIL}'
+            BOOTSTRAP_OWNER_PASSWORD='${BOOTSTRAP_OWNER_PASSWORD}'
+            BOOTSTRAP_OWNER_NAME='${BOOTSTRAP_OWNER_NAME}'
             EOF
 
             # The job token is only valid while this job runs, so log out right
