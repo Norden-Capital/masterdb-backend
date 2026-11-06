@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: masterdb-backend
+
+  # Local defaults for development only. In production docker-compose.yml sets
+  # SPRING_DATASOURCE_URL/USERNAME/PASSWORD, and the password comes from the
+  # server's .env (written by the deploy from a GitHub secret). Never put a real
+  # password here: this repository is public.
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/masterdb}
+    username: ${SPRING_DATASOURCE_USERNAME:masterdb}
+    password: ${SPRING_DATASOURCE_PASSWORD:masterdb-local-dev}
+
+  # Flyway owns the schema. Hibernate only checks that the entities match it,
+  # and refuses to start if they do not.
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+server:
+  # Caddy on the host terminates TLS and forwards to 127.0.0.1:8080.
+  forward-headers-strategy: native
+
+# Only /actuator/health is reachable. The deploy waits on it.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

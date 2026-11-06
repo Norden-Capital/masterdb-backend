@@ -1,0 +1,168 @@
+name: CI/CD – Backend
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  # Lowercase on purpose: GHCR rejects uppercase, and the org is "Norden-Capital".
+  # Must match the image in docker-compose.yml.
+  IMAGE_NAME: norden-capital/masterdb-backend
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # 1. Build & Test
+  # ──────────────────────────────────────────────────────────────────────────
+  build-test:
+    name: Build & Test (Java 21 / Maven)
+    runs-on: ubuntu-latest
+
+    # No Postgres service container. The tests start their own PostgreSQL 16
+    # in-process (io.zonky.test:embedded-postgres), exactly as on a developer
+    # machine without Docker, so CI and local runs cannot drift apart. Flyway
+    # applies every migration to it and Hibernate validates the entities.
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Make mvnw executable
+        run: chmod +x mvnw
+
+      - name: Build and run tests
+        run: ./mvnw verify -B
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 2. Build & Push Docker image  (main branch pushes only)
+  # ──────────────────────────────────────────────────────────────────────────
+  build-push:
+    name: Build & Push Docker image
+    needs: build-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 3. Deploy to VPS over SSH
+  # ──────────────────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to VPS
+    needs: build-push
+    runs-on: ubuntu-latest
+    # The job's own GITHUB_TOKEN pulls the image, so no personal token is needed.
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+
+      # Only docker-compose.yml goes to the server. docker-compose.override.yml
+      # (local ports, pgAdmin) must never reach it.
+      - name: Copy docker-compose.yml to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "docker-compose.yml"
+          target: "/opt/masterdb"
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: POSTGRES_PASSWORD,GHCR_TOKEN
+          script: |
+            set -e
+
+            cd /opt/masterdb
+
+            # Fail before touching anything if a secret is missing. Without it
+            # compose would fall back to the public local-dev password.
+            [ -n "$POSTGRES_PASSWORD" ] || { echo "::error::POSTGRES_PASSWORD is empty — add it under Settings > Secrets > Actions"; exit 1; }
+
+            # docker compose reads this automatically from the working directory.
+            # umask 077: only the deploy user can read it.
+            umask 077
+            cat > .env <<EOF
+            POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+            EOF
+
+            # The job token is only valid while this job runs, so log out right
+            # after the pull rather than leave a dead credential on the server.
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Pull the new image and start backend + postgres.
+            docker compose pull
+            docker logout ghcr.io
+            docker compose up -d
+
+            # Remove dangling images to keep the disk clean.
+            docker image prune -f
+
+            # The deploy is not finished until the app answers.
+            echo "Waiting for the backend to report healthy..."
+            for attempt in $(seq 1 30); do
+              if curl -fsS http://localhost:8080/actuator/health > /dev/null 2>&1; then
+                echo "✅ Deployment complete and healthy – $(date)"
+                exit 0
+              fi
+              sleep 5
+            done
+
+            echo "::error::Backend did not become healthy within 150s"
+            docker compose ps
+            docker compose logs --tail 120 backend
+            exit 1

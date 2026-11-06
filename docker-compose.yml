@@ -1,0 +1,64 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    container_name: masterdb-postgres
+    environment:
+      POSTGRES_DB: masterdb
+      POSTGRES_USER: masterdb
+      # The fallback exists so local development works with no setup. On the VPS
+      # the deploy writes /opt/masterdb/.env, and that value wins. Never let the
+      # fallback be what production actually runs on.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-masterdb-local-dev}
+    # Tuned for the dedicated 8 GB VPS (nothing else runs there besides the
+    # backend, whose heap is capped at ~4 GB by -XX:MaxRAMPercentage=50).
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=5GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=512MB
+    # 2 GB of shared_buffers needs more than Docker's default 64 MB /dev/shm
+    # for parallel queries.
+    shm_size: 1gb
+    # No "ports" on purpose. The backend container reaches this database over the
+    # internal compose network as db:5432, so publishing 5432 to the host would
+    # only expose Postgres to the public internet without the backend gaining
+    # anything. Local development adds the port back in docker-compose.override.yml,
+    # bound to 127.0.0.1, because Maven runs on the host rather than in a container.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U masterdb -d masterdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: ghcr.io/norden-capital/masterdb-backend:latest
+    restart: unless-stopped
+    container_name: masterdb-backend
+    ports:
+      # 127.0.0.1 only. Caddy on the host is the public entrance. Docker writes
+      # its own firewall rules, so a plain "8080:8080" would put the backend on
+      # the internet over plain HTTP no matter what ufw says.
+      - "127.0.0.1:8080:8080"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/masterdb
+      - SPRING_DATASOURCE_USERNAME=masterdb
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-masterdb-local-dev}
+
+      # SPRING_JPA_HIBERNATE_DDL_AUTO is deliberately absent. Environment
+      # variables override application.yml, so setting it here would put
+      # Hibernate back in charge of the schema and undo `ddl-auto: validate`,
+      # which exists so Flyway owns migrations alone.
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

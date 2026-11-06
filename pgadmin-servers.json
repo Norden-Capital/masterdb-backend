@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "MasterDB Local",
+      "Group": "Servers",
+      "Host": "db",
+      "Port": 5432,
+      "MaintenanceDB": "masterdb",
+      "Username": "masterdb",
+      "SSLMode": "prefer",
+      "Comment": "Host is 'db', not localhost: pgAdmin connects over the compose network, where the Postgres container is reachable by its service name."
+    }
+  }
+}

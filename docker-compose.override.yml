@@ -1,0 +1,49 @@
+# Local development only.
+#
+# Docker Compose merges a file named exactly "docker-compose.override.yml" into
+# docker-compose.yml automatically, with no extra flags. The CI deploy job copies
+# only docker-compose.yml to the VPS (see .github/workflows/ci-cd.yml), so nothing
+# in this file can ever reach the server. That is the point: pgAdmin is a database
+# admin console, and a publicly reachable one is a standing invitation.
+#
+# Start the database for `./mvnw spring-boot:run`:
+#     docker compose up -d db
+#
+# Start pgAdmin on demand so it is not eating RAM the rest of the time:
+#     docker compose up -d pgadmin
+#     docker compose stop pgadmin
+# Then open http://localhost:5050
+
+services:
+  # Republishes Postgres for local use only. docker-compose.yml deliberately
+  # leaves the port closed so the VPS never exposes the database; here it is
+  # bound to 127.0.0.1 so the backend running on the host can connect while
+  # nothing on the network can.
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  pgadmin:
+    image: dpage/pgadmin4:8.14
+    container_name: masterdb-pgadmin
+    restart: unless-stopped
+    environment:
+      # Local-only throwaway login; the port below is bound to 127.0.0.1.
+      PGADMIN_DEFAULT_EMAIL: admin@local.dev
+      PGADMIN_DEFAULT_PASSWORD: admin
+      # Skip the "enter master password" prompt on every browser session.
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      # Bound to 127.0.0.1 on purpose. Plain "5050:80" would publish the admin
+      # console on every network interface this machine has.
+      - "127.0.0.1:5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      # Pre-registers the MasterDB connection so there is nothing to fill in by hand.
+      - ./pgadmin-servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgadmin_data:
