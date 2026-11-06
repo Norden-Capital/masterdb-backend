@@ -2,7 +2,14 @@
 # One-time preparation of a fresh Ubuntu 24.04 VPS for the MasterDB backend.
 #
 # Run as root on the server:
-#     bash vps-setup.sh "<ci public key>"
+#     bash vps-setup.sh "<ci public key>" [api domain]
+# e.g.
+#     bash vps-setup.sh "ssh-ed25519 AAAA... ci" db-api.nordencapital.ca
+#
+# The domain can also come from the API_DOMAIN environment variable. With a
+# domain, Caddy serves the API over HTTPS on it (the A record must already point
+# here) and the bare IP answers 404. Without one, the API is plain HTTP on the
+# IP until you re-run the script with the domain.
 #
 # Safe to re-run: every step checks before it changes anything.
 #
@@ -13,6 +20,7 @@
 set -euo pipefail
 
 CI_PUBKEY="${1:-}"
+API_DOMAIN="${2:-${API_DOMAIN:-}}"   # Empty = plain HTTP on the IP.
 APP_DIR=/opt/masterdb       # Must match the target in .github/workflows/ci-cd.yml.
 DEPLOY_USER=deploy
 
@@ -75,28 +83,52 @@ if ! command -v caddy >/dev/null 2>&1; then
   apt-get install -y caddy
 fi
 
-# Written once. The marker keeps a re-run from overwriting the file after the
-# domain block below has been switched on by hand; the stock file is kept.
-if ! grep -q '^# MasterDB' /etc/caddy/Caddyfile 2>/dev/null; then
-  [ -f /etc/caddy/Caddyfile ] && cp /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.orig.$(date +%Y%m%d%H%M%S)"
-  cat > /etc/caddy/Caddyfile <<'EOF'
+# Written when the file is not ours yet (no marker line), or when a domain is
+# given and the file does not serve it yet (plain-IP mode -> HTTPS). Otherwise
+# left alone, so hand edits survive a re-run. The old file is always kept.
+CADDY_WRITE=no
+grep -q '^# MasterDB' /etc/caddy/Caddyfile 2>/dev/null || CADDY_WRITE=yes
+if [ -n "$API_DOMAIN" ] && ! grep -qF "$API_DOMAIN {" /etc/caddy/Caddyfile 2>/dev/null; then
+  CADDY_WRITE=yes
+fi
+if [ "$CADDY_WRITE" = yes ]; then
+  [ -f /etc/caddy/Caddyfile ] && cp /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.bak.$(date +%Y%m%d%H%M%S)"
+  if [ -n "$API_DOMAIN" ]; then
+    # HTTPS on the domain. Caddy fetches and renews the Let's Encrypt
+    # certificate itself and redirects http:// to https://. The backend sets no
+    # security headers of its own, so HSTS is added here (no preload: that is
+    # hard to undo). The bare IP gets a 404, not a redirect, so IP scanners are
+    # not pointed at the API.
+    cat > /etc/caddy/Caddyfile <<EOF
 # MasterDB - reverse proxy to the backend container on 127.0.0.1:8080.
+# Keep this first line: vps-setup.sh uses it as a marker and will not overwrite
+# this file on a re-run.
 
-# Placeholder until DNS exists: plain HTTP on the server's IP.
-# Remove this block once the domain block below is enabled.
-:80 {
+# The API, HTTPS only.
+${API_DOMAIN} {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000"
 	reverse_proxy 127.0.0.1:8080
 }
 
-# Enable when masterdb-api.nordencapital.ca points at this server (A record).
-# Caddy then fetches and renews the HTTPS certificate on its own.
-# Apply with: systemctl reload caddy
-#
-# masterdb-api.nordencapital.ca {
-# 	encode gzip
-# 	reverse_proxy 127.0.0.1:8080
-# }
+# Anything else on port 80 (the bare IP, unknown Host headers): no API here.
+:80 {
+	respond "Not found" 404
+}
 EOF
+  else
+    cat > /etc/caddy/Caddyfile <<'EOF'
+# MasterDB - reverse proxy to the backend container on 127.0.0.1:8080.
+# Keep this first line: vps-setup.sh uses it as a marker and will not overwrite
+# this file on a re-run.
+
+# No domain yet: plain HTTP on the server's IP.
+# Once an A record points here, re-run: bash vps-setup.sh "<ci key>" <api domain>
+:80 {
+	reverse_proxy 127.0.0.1:8080
+}
+EOF
+  fi
 fi
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl enable caddy
