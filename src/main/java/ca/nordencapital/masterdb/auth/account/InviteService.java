@@ -1,5 +1,8 @@
 package ca.nordencapital.masterdb.auth.account;
 
+import ca.nordencapital.masterdb.activity.ActivityAction;
+import ca.nordencapital.masterdb.activity.ActivityLog;
+import ca.nordencapital.masterdb.activity.ActivityLog.Party;
 import ca.nordencapital.masterdb.auth.password.PasswordPolicy;
 import ca.nordencapital.masterdb.auth.token.AccountToken;
 import ca.nordencapital.masterdb.auth.token.AccountTokenService;
@@ -31,8 +34,11 @@ public class InviteService {
     private final AccountTokenService tokens;
     private final PasswordEncoder encoder;
     private final TwoFactorService twoFactor;
+    private final ActivityLog activity;
 
-    public InviteService(AccountTokenService tokens, PasswordEncoder encoder, TwoFactorService twoFactor) {
+    public InviteService(AccountTokenService tokens, PasswordEncoder encoder, TwoFactorService twoFactor,
+            ActivityLog activity) {
+        this.activity = activity;
         this.tokens = tokens;
         this.encoder = encoder;
         this.twoFactor = twoFactor;
@@ -69,6 +75,7 @@ public class InviteService {
         tokens.consume(invite);
         log.info("invite accepted: {} user={} ip={} requestId={}", Emails.mask(user.getEmail()), user.getPublicId(),
                 ip, MDC.get(RequestIdFilter.MDC_KEY));
+        activity.record(ActivityAction.INVITE_ACCEPTED, Party.of(user), Party.of(user));
         return twoFactor.start(user, ip, userAgent);
     }
 

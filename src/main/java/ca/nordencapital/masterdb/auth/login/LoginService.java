@@ -1,5 +1,8 @@
 package ca.nordencapital.masterdb.auth.login;
 
+import ca.nordencapital.masterdb.activity.ActivityAction;
+import ca.nordencapital.masterdb.activity.ActivityLog;
+import ca.nordencapital.masterdb.activity.ActivityLog.Party;
 import ca.nordencapital.masterdb.auth.AuthProperties;
 import ca.nordencapital.masterdb.auth.password.PasswordConfig;
 import ca.nordencapital.masterdb.auth.twofactor.TwoFactorService;
@@ -18,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -50,11 +54,13 @@ public class LoginService {
     private final AuthProperties.Lockout lockout;
     private final Clock clock;
     private final UnknownAccountAttempts unknownAccounts;
+    private final ActivityLog activity;
     /** A real BCrypt hash of a random value, so "no account" costs the same as "wrong password". */
     private final String dummyHash;
 
     public LoginService(UserRepository users, PasswordEncoder passwordEncoder, TwoFactorService twoFactor,
-            AuthProperties properties, Clock clock) {
+            AuthProperties properties, Clock clock, ActivityLog activity) {
+        this.activity = activity;
         this.users = users;
         this.passwordEncoder = passwordEncoder;
         this.twoFactor = twoFactor;
@@ -80,6 +86,7 @@ public class LoginService {
             if (now.isBefore(user.getLockedUntil())) {
                 log.info("login refused, account locked: {} until={} ip={} requestId={}", masked,
                         user.getLockedUntil(), ip, requestId());
+                activity.record(ActivityAction.LOGIN_FAILED, null, Party.of(user), Map.of("reason", "account_locked"));
                 return new LoginResult.Locked(user.getLockedUntil());
             }
             // The lock is over: a fresh set of attempts.
@@ -113,9 +120,14 @@ public class LoginService {
             user.setLockedUntil(until);
             log.info("login failed ({}), account locked: {} attempts={} until={} ip={} requestId={}", reason, masked,
                     failures, until, ip, requestId());
+            activity.record(ActivityAction.LOGIN_FAILED, null, Party.of(user), Map.of("reason", code(reason)));
+            activity.record(ActivityAction.ACCOUNT_LOCKED, null, Party.of(user),
+                    Map.of("attempts", failures, "until", until.toString()));
             return new LoginResult.Locked(until);
         }
         log.info("login failed ({}): {} attempts={} ip={} requestId={}", reason, masked, failures, ip, requestId());
+        activity.record(ActivityAction.LOGIN_FAILED, null, Party.of(user),
+                Map.of("reason", code(reason), "attempts", failures));
         return new LoginResult.InvalidCredentials();
     }
 
@@ -129,6 +141,8 @@ public class LoginService {
         if (lockedUntil != null) {
             log.info("login refused, account locked: {} until={} ip={} requestId={}", masked, lockedUntil, ip,
                     requestId());
+            activity.record(ActivityAction.LOGIN_FAILED, null, Party.label(masked),
+                    Map.of("reason", "unknown_account_locked"));
             return new LoginResult.Locked(lockedUntil);
         }
         matches(password, null); // same cost as a real check
@@ -136,9 +150,11 @@ public class LoginService {
         if (lockedUntil != null) {
             log.info("login failed (unknown account), locked: {} until={} ip={} requestId={}", masked, lockedUntil,
                     ip, requestId());
+            activity.record(ActivityAction.LOGIN_FAILED, null, Party.label(masked), Map.of("reason", "unknown_account"));
             return new LoginResult.Locked(lockedUntil);
         }
         log.info("login failed (unknown account): {} ip={} requestId={}", masked, ip, requestId());
+        activity.record(ActivityAction.LOGIN_FAILED, null, Party.label(masked), Map.of("reason", "unknown_account"));
         return new LoginResult.InvalidCredentials();
     }
 
@@ -159,6 +175,11 @@ public class LoginService {
             return false;
         }
         return passwordEncoder.matches(password, hash);
+    }
+
+    /** "account disabled" → "account_disabled", for the activity log. */
+    private static String code(String reason) {
+        return reason.replace(' ', '_');
     }
 
     private static String requestId() {

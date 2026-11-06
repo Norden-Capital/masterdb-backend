@@ -1,5 +1,8 @@
 package ca.nordencapital.masterdb.auth.account;
 
+import ca.nordencapital.masterdb.activity.ActivityAction;
+import ca.nordencapital.masterdb.activity.ActivityLog;
+import ca.nordencapital.masterdb.activity.ActivityLog.Party;
 import ca.nordencapital.masterdb.auth.AuthProperties;
 import ca.nordencapital.masterdb.auth.password.PasswordConfig;
 import ca.nordencapital.masterdb.auth.password.PasswordPolicy;
@@ -27,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /** The signed-in user's own account: password, sessions, recovery codes. */
@@ -41,9 +45,11 @@ public class AccountService {
     private final TwoFactorService twoFactor;
     private final AuthProperties.Lockout lockout;
     private final Clock clock;
+    private final ActivityLog activity;
 
     public AccountService(UserRepository users, PasswordEncoder encoder, SessionService sessions,
-            TwoFactorService twoFactor, AuthProperties properties, Clock clock) {
+            TwoFactorService twoFactor, AuthProperties properties, Clock clock, ActivityLog activity) {
+        this.activity = activity;
         this.users = users;
         this.encoder = encoder;
         this.sessions = sessions;
@@ -88,6 +94,8 @@ public class AccountService {
             if (failures >= lockout.maxAttempts()) {
                 user.setLockedUntil(clock.instant().plus(lockout.duration()));
                 sessions.revokeAll(user.getId());
+                activity.record(ActivityAction.ACCOUNT_LOCKED, Party.of(user), Party.of(user),
+                        Map.of("reason", "current_password_wrong", "attempts", failures));
                 log.info("password change refused, account locked, sessions ended: {} user={} requestId={}",
                         Emails.mask(user.getEmail()), user.getPublicId(), requestId());
             } else {
@@ -103,6 +111,8 @@ public class AccountService {
         twoFactor.endChallenges(user);
         log.info("password changed: {} user={} otherSessionsEnded={} requestId={}", Emails.mask(user.getEmail()),
                 user.getPublicId(), ended, requestId());
+        activity.record(ActivityAction.PASSWORD_CHANGED, Party.of(user), Party.of(user),
+                Map.of("otherSessionsEnded", ended));
     }
 
     public List<SessionView> sessions(AuthPrincipal me) {
@@ -116,6 +126,7 @@ public class AccountService {
         }
         log.info("session revoked: {} user={} session={} by=self requestId={}", Emails.mask(me.email()),
                 me.userPublicId(), sessionId, requestId());
+        activity.record(ActivityAction.SESSION_REVOKED, Party.of(me), Party.of(me), Map.of("session", sessionId.toString()));
     }
 
     @Transactional
@@ -123,6 +134,8 @@ public class AccountService {
         int ended = sessions.revokeOthers(me.userId(), me.sessionId());
         log.info("other sessions revoked: {} user={} count={} requestId={}", Emails.mask(me.email()),
                 me.userPublicId(), ended, requestId());
+        activity.record(ActivityAction.SESSIONS_REVOKED, Party.of(me), Party.of(me),
+                Map.of("count", ended, "scope", "others"));
         return ended;
     }
 
@@ -132,6 +145,8 @@ public class AccountService {
         int ended = sessions.revokeAll(me.userId());
         log.info("logout everywhere: {} user={} count={} requestId={}", Emails.mask(me.email()), me.userPublicId(),
                 ended, requestId());
+        activity.record(ActivityAction.SESSIONS_REVOKED, Party.of(me), Party.of(me),
+                Map.of("count", ended, "scope", "everywhere"));
         return ended;
     }
 
@@ -152,6 +167,7 @@ public class AccountService {
         List<String> codes = twoFactor.regenerateRecoveryCodes(user);
         log.info("recovery codes regenerated: {} user={} requestId={}", Emails.mask(user.getEmail()),
                 user.getPublicId(), requestId());
+        activity.record(ActivityAction.RECOVERY_CODES_REGENERATED, Party.of(user), Party.of(user));
         return codes;
     }
 

@@ -1,5 +1,8 @@
 package ca.nordencapital.masterdb.auth.twofactor;
 
+import ca.nordencapital.masterdb.activity.ActivityAction;
+import ca.nordencapital.masterdb.activity.ActivityLog;
+import ca.nordencapital.masterdb.activity.ActivityLog.Party;
 import ca.nordencapital.masterdb.auth.AuthProperties;
 import ca.nordencapital.masterdb.auth.session.SessionService;
 import ca.nordencapital.masterdb.auth.session.SessionService.IssuedSession;
@@ -54,9 +57,12 @@ public class TwoFactorService {
     private final AuthProperties.Lockout lockout;
     private final Clock clock;
     private final SecureRandom random = new SecureRandom();
+    private final ActivityLog activity;
 
     public TwoFactorService(LoginChallengeRepository challenges, RecoveryCodeRepository recoveryCodes,
-            SessionService sessions, SecretCipher cipher, AuthProperties properties, Clock clock) {
+            SessionService sessions, SecretCipher cipher, AuthProperties properties, Clock clock,
+            ActivityLog activity) {
+        this.activity = activity;
         this.challenges = challenges;
         this.recoveryCodes = recoveryCodes;
         this.sessions = sessions;
@@ -158,6 +164,7 @@ public class TwoFactorService {
         challenge.consume(now);
         log.info("2fa enrolled: {} user={} requestId={}", Emails.mask(user.getEmail()), user.getPublicId(),
                 requestId());
+        activity.record(ActivityAction.TWO_FACTOR_ENROLLED, Party.of(user), Party.of(user));
         return signIn(user, ip, userAgent, now, codes);
     }
 
@@ -195,6 +202,8 @@ public class TwoFactorService {
                 return wrongCode(user, challenge, now, "recovery code wrong or used");
             }
             recovery.get().use(now);
+            activity.record(ActivityAction.RECOVERY_CODE_USED, Party.of(user), Party.of(user),
+                    java.util.Map.of("remaining", recoveryCodes.countByUserIdAndUsedAtIsNull(user.getId()) - 1));
             log.info("recovery code used: {} user={} remaining={} requestId={}", Emails.mask(user.getEmail()),
                     user.getPublicId(), recoveryCodes.countByUserIdAndUsedAtIsNull(user.getId()) - 1, requestId());
         }
@@ -272,12 +281,17 @@ public class TwoFactorService {
             challenge.consume(now);
             log.info("login failed ({}), account locked: {} attempts={} until={} requestId={}", reason, masked,
                     failures, until, requestId());
+            activity.record(ActivityAction.LOGIN_FAILED, null, Party.of(user), java.util.Map.of("reason", "2fa_code"));
+            activity.record(ActivityAction.ACCOUNT_LOCKED, null, Party.of(user),
+                    java.util.Map.of("attempts", failures, "until", until.toString()));
             return new CodeResult.Locked(until);
         }
         if (challengeOver) {
             challenge.consume(now);
         }
         log.info("login failed ({}): {} attempts={} requestId={}", reason, masked, failures, requestId());
+        activity.record(ActivityAction.LOGIN_FAILED, null, Party.of(user),
+                java.util.Map.of("reason", "2fa_code", "attempts", failures));
         return new CodeResult.InvalidCode();
     }
 
@@ -288,6 +302,8 @@ public class TwoFactorService {
         IssuedSession session = sessions.start(user, ip, userAgent);
         log.info("login succeeded: {} user={} session={} ip={} requestId={}", Emails.mask(user.getEmail()),
                 user.getPublicId(), session.publicId(), ip, requestId());
+        activity.record(ActivityAction.LOGIN_SUCCEEDED, Party.of(user), Party.of(user),
+                java.util.Map.of("session", session.publicId().toString()));
         return new CodeResult.Authenticated(user, session, codes);
     }
 

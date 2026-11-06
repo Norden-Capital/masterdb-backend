@@ -1,0 +1,26 @@
+package ca.nordencapital.masterdb.activity;
+
+/** What happened. Stored by name: add new ones, never rename. */
+public enum ActivityAction {
+    LOGIN_SUCCEEDED,
+    LOGIN_FAILED,
+    ACCOUNT_LOCKED,
+    LOGOUT,
+    TWO_FACTOR_ENROLLED,
+    TWO_FACTOR_RESET,
+    RECOVERY_CODE_USED,
+    RECOVERY_CODES_REGENERATED,
+    USER_INVITED,
+    INVITE_RESENT,
+    INVITE_CANCELLED,
+    INVITE_ACCEPTED,
+    USER_DISABLED,
+    USER_ENABLED,
+    PERMISSIONS_CHANGED,
+    PASSWORD_CHANGED,
+    PASSWORD_RESET_REQUESTED,
+    PASSWORD_RESET,
+    SESSION_REVOKED,
+    SESSIONS_REVOKED,
+    ACTIVITY_EXPORTED
+}

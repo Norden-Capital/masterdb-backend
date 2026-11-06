@@ -316,8 +316,30 @@ login rate limit reached: ip=... retryAfter=42s requestId=...
 logout: j***@nordencapital.ca user=<uuid> session=<uuid> ip=... requestId=...
 ```
 
-The reason in brackets is for the server log only; the API never says it. These events
-move into the activity-log table in M1.8.
+The reason in brackets is for the server log only; the API never says it.
+
+#### Activity log (M1.8)
+
+Table `activity_log` (`V6__activity_log.sql`): time, `action`, actor and target (public id +
+email; a made-up email from a failed sign-in is stored **masked**), client address, user
+agent, request id and small JSON `details` (never a password, token, code or hash). No
+foreign keys: entries outlive the accounts. Written in the same transaction as the action
+(`activity/ActivityLog`), so an action that fails leaves no entry.
+
+Recorded: `LOGIN_SUCCEEDED`, `LOGIN_FAILED` (with a reason), `ACCOUNT_LOCKED`, `LOGOUT`,
+`TWO_FACTOR_ENROLLED`, `TWO_FACTOR_RESET`, `RECOVERY_CODE_USED`, `RECOVERY_CODES_REGENERATED`,
+`USER_INVITED`, `INVITE_RESENT`, `INVITE_CANCELLED`, `INVITE_ACCEPTED`, `USER_DISABLED`,
+`USER_ENABLED`, `PERMISSIONS_CHANGED` (added / removed), `PASSWORD_CHANGED`,
+`PASSWORD_RESET_REQUESTED`, `PASSWORD_RESET`, `SESSION_REVOKED`, `SESSIONS_REVOKED`,
+`ACTIVITY_EXPORTED`.
+
+| Call | Permission |
+| --- | --- |
+| `GET /api/v1/activity?action=&user=&q=&from=&to=&page=&size=&sort=occurredAt,asc` | ACTIVITY_LOG:VIEW |
+| `GET /api/v1/activity/export?...same filters` → `text/csv` (UTF-8 BOM, at most 100,000 rows, cells starting with `= + - @` are prefixed with `'`) | ACTIVITY_LOG:EXPORT; the export is itself logged |
+
+Retention: entries older than `app.activity.retention` (365 days) are deleted daily at
+03:40 UTC (`ActivityQuery.prune`).
 
 #### Filter order
 

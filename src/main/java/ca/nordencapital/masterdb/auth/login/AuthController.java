@@ -1,5 +1,8 @@
 package ca.nordencapital.masterdb.auth.login;
 
+import ca.nordencapital.masterdb.activity.ActivityAction;
+import ca.nordencapital.masterdb.activity.ActivityLog;
+import ca.nordencapital.masterdb.activity.ActivityLog.Party;
 import ca.nordencapital.masterdb.auth.session.AuthPrincipal;
 import ca.nordencapital.masterdb.auth.session.SessionCookie;
 import ca.nordencapital.masterdb.auth.session.SessionService;
@@ -62,9 +65,11 @@ public class AuthController {
     private final ClientIp clientIp;
     private final UserSummaries summaries;
     private final Clock clock;
+    private final ActivityLog activity;
 
     public AuthController(LoginService loginService, TwoFactorService twoFactor, SessionService sessions,
-            SessionCookie cookie, ClientIp clientIp, UserSummaries summaries, Clock clock) {
+            SessionCookie cookie, ClientIp clientIp, UserSummaries summaries, Clock clock, ActivityLog activity) {
+        this.activity = activity;
         this.loginService = loginService;
         this.twoFactor = twoFactor;
         this.sessions = sessions;
@@ -128,6 +133,8 @@ public class AuthController {
         log.info("logout: {} user={} session={} ip={} requestId={}", Emails.mask(principal.email()),
                 principal.userPublicId(), principal.sessionPublicId(), clientIp.resolve(request),
                 RequestIdFilter.get(request));
+        activity.record(ActivityAction.LOGOUT, Party.of(principal), Party.of(principal),
+                java.util.Map.of("session", principal.sessionPublicId().toString()));
         return ResponseEntity.noContent().header(HttpHeaders.SET_COOKIE, cookie.clear().toString()).build();
     }
 

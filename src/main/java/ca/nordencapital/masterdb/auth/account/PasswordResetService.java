@@ -1,5 +1,8 @@
 package ca.nordencapital.masterdb.auth.account;
 
+import ca.nordencapital.masterdb.activity.ActivityAction;
+import ca.nordencapital.masterdb.activity.ActivityLog;
+import ca.nordencapital.masterdb.activity.ActivityLog.Party;
 import ca.nordencapital.masterdb.auth.password.PasswordPolicy;
 import ca.nordencapital.masterdb.auth.session.SessionService;
 import ca.nordencapital.masterdb.auth.token.AccountToken;
@@ -15,6 +18,7 @@ import ca.nordencapital.masterdb.web.request.RequestIdFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -59,11 +63,13 @@ public class PasswordResetService {
     private final boolean async;
     private final Duration ttl;
     private final Clock clock;
+    private final ActivityLog activity;
 
     public PasswordResetService(UserRepository users, AccountTokenService tokens, AccountTokenRepository tokenRows,
             AccountMails mails, PasswordEncoder encoder, SessionService sessions, TwoFactorService twoFactor,
-            TaskExecutor executor, @Value("${app.mail.async:true}") boolean async,
-            @Value("${app.auth.reset-ttl:30m}") Duration ttl, Clock clock) {
+            @Qualifier("applicationTaskExecutor") TaskExecutor executor, @Value("${app.mail.async:true}") boolean async,
+            @Value("${app.auth.reset-ttl:30m}") Duration ttl, Clock clock, ActivityLog activity) {
+        this.activity = activity;
         this.users = users;
         this.tokens = tokens;
         this.tokenRows = tokenRows;
@@ -99,6 +105,8 @@ public class PasswordResetService {
         String name = user.getFullName();
         log.info("password reset link issued: {} user={} ip={} requestId={}", masked, user.getPublicId(), ip,
                 requestId());
+        activity.record(ActivityAction.PASSWORD_RESET_REQUESTED, null, Party.of(user),
+                java.util.Map.of("expiresAt", issued.expiresAt().toString()));
         Runnable send = () -> mails.sendPasswordReset(to, name, issued.token(), issued.expiresAt(), now);
         afterCommit(async ? () -> executor.execute(send) : send);
     }
@@ -122,6 +130,8 @@ public class PasswordResetService {
         twoFactor.endChallenges(user);
         log.info("password reset: {} user={} sessionsEnded={} ip={} requestId={}", Emails.mask(user.getEmail()),
                 user.getPublicId(), ended, ip, requestId());
+        activity.record(ActivityAction.PASSWORD_RESET, Party.of(user), Party.of(user),
+                java.util.Map.of("sessionsEnded", ended));
     }
 
     private AccountToken usable(String token) {

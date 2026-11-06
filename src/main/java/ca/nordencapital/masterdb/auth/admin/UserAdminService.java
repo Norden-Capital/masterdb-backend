@@ -1,5 +1,8 @@
 package ca.nordencapital.masterdb.auth.admin;
 
+import ca.nordencapital.masterdb.activity.ActivityAction;
+import ca.nordencapital.masterdb.activity.ActivityLog;
+import ca.nordencapital.masterdb.activity.ActivityLog.Party;
 import ca.nordencapital.masterdb.auth.permission.ForbiddenException;
 import ca.nordencapital.masterdb.auth.permission.Permission;
 import ca.nordencapital.masterdb.auth.permission.PermissionService;
@@ -66,10 +69,12 @@ public class UserAdminService {
     private final AccountMails mails;
     private final Duration inviteTtl;
     private final Clock clock;
+    private final ActivityLog activity;
 
     public UserAdminService(UserRepository users, PermissionService permissions, SessionService sessions,
             TwoFactorService twoFactor, AccountTokenService tokens, AccountMails mails,
-            @Value("${app.auth.invite-ttl:72h}") Duration inviteTtl, Clock clock) {
+            @Value("${app.auth.invite-ttl:72h}") Duration inviteTtl, Clock clock, ActivityLog activity) {
+        this.activity = activity;
         this.users = users;
         this.permissions = permissions;
         this.sessions = sessions;
@@ -144,6 +149,9 @@ public class UserAdminService {
         mails.sendInvite(user.getEmail(), fullName, caller.fullName(), issued.token(), issued.expiresAt());
         log.info("user invited: {} user={} by={} permissions={} requestId={}", Emails.mask(user.getEmail()),
                 user.getPublicId(), caller.userPublicId(), wanted.size(), requestId());
+        activity.record(ActivityAction.USER_INVITED, Party.of(caller), Party.of(user),
+                Map.of("permissions", wanted.stream().map(Permission::toString).toList(),
+                        "expiresAt", issued.expiresAt().toString()));
         return item(user, issued.expiresAt());
     }
 
@@ -159,6 +167,8 @@ public class UserAdminService {
                 issued.expiresAt());
         log.info("invite resent: {} user={} by={} requestId={}", Emails.mask(user.getEmail()), user.getPublicId(),
                 caller.userPublicId(), requestId());
+        activity.record(ActivityAction.INVITE_RESENT, Party.of(caller), Party.of(user),
+                Map.of("expiresAt", issued.expiresAt().toString()));
         return item(user, issued.expiresAt());
     }
 
@@ -172,6 +182,7 @@ public class UserAdminService {
         requireCanGrant(caller, Set.of(), permissions.granted(user.getId()));
         log.info("invite cancelled: {} user={} by={} requestId={}", Emails.mask(user.getEmail()), user.getPublicId(),
                 caller.userPublicId(), requestId());
+        activity.record(ActivityAction.INVITE_CANCELLED, Party.of(caller), Party.of(user));
         users.delete(user);
     }
 
@@ -190,6 +201,7 @@ public class UserAdminService {
         twoFactor.endChallenges(user);
         log.info("user disabled: {} user={} by={} sessionsEnded={} requestId={}", Emails.mask(user.getEmail()),
                 user.getPublicId(), caller.userPublicId(), ended, requestId());
+        activity.record(ActivityAction.USER_DISABLED, Party.of(caller), Party.of(user), Map.of("sessionsEnded", ended));
         return item(user, null);
     }
 
@@ -204,6 +216,7 @@ public class UserAdminService {
         user.setLockedUntil(null);
         log.info("user enabled: {} user={} by={} requestId={}", Emails.mask(user.getEmail()), user.getPublicId(),
                 caller.userPublicId(), requestId());
+        activity.record(ActivityAction.USER_ENABLED, Party.of(caller), Party.of(user));
         return item(user, null);
     }
 
@@ -215,6 +228,8 @@ public class UserAdminService {
         int ended = sessions.revokeAll(user.getId());
         log.info("2fa reset: {} user={} by={} sessionsEnded={} requestId={}", Emails.mask(user.getEmail()),
                 user.getPublicId(), caller.userPublicId(), ended, requestId());
+        activity.record(ActivityAction.TWO_FACTOR_RESET, Party.of(caller), Party.of(user),
+                Map.of("sessionsEnded", ended));
         return item(user, null);
     }
 
@@ -231,6 +246,9 @@ public class UserAdminService {
         removed.removeAll(saved);
         log.info("permissions changed: {} user={} by={} added={} removed={} requestId={}",
                 Emails.mask(user.getEmail()), user.getPublicId(), caller.userPublicId(), added, removed, requestId());
+        activity.record(ActivityAction.PERMISSIONS_CHANGED, Party.of(caller), Party.of(user),
+                Map.of("added", added.stream().map(Permission::toString).toList(),
+                        "removed", removed.stream().map(Permission::toString).toList()));
         return saved.stream().map(Permission::toString).toList();
     }
 
@@ -247,6 +265,8 @@ public class UserAdminService {
         }
         log.info("session revoked: {} user={} session={} by={} requestId={}", Emails.mask(user.getEmail()),
                 user.getPublicId(), sessionId, caller.userPublicId(), requestId());
+        activity.record(ActivityAction.SESSION_REVOKED, Party.of(caller), Party.of(user),
+                Map.of("session", sessionId.toString()));
     }
 
     @Transactional
@@ -255,6 +275,7 @@ public class UserAdminService {
         int ended = sessions.revokeAll(user.getId());
         log.info("sessions revoked: {} user={} count={} by={} requestId={}", Emails.mask(user.getEmail()),
                 user.getPublicId(), ended, caller.userPublicId(), requestId());
+        activity.record(ActivityAction.SESSIONS_REVOKED, Party.of(caller), Party.of(user), Map.of("count", ended));
         return ended;
     }
 

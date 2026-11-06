@@ -144,6 +144,10 @@ app:
     key: ${ENCRYPTION_KEY:}
     required: true
 
+  # Activity log (activity/): entries older than this are deleted daily.
+  activity:
+    retention: 365d
+
   # Browsers may call this API only from these sites (CorsConfig).
   # Comma-separated. The `local` profile adds http://localhost:3000.
   cors:
