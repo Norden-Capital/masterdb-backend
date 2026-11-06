@@ -229,6 +229,14 @@ not the email (`auth/password/PasswordPolicy`). Email links carry the token afte
 `account_tokens` (`V5__account_tokens.sql`) keeps only its SHA-256. Invitation, accept and
 reset calls share a per-address rate limit (`link` bucket, 10/min, 50/h).
 
+#### Forgot / reset password (M1.6)
+
+| Call | Answer |
+| --- | --- |
+| `POST /api/v1/auth/password/forgot` `{email}` | **always** 202 with the same message, account or not. Only an ACTIVE account gets an email, at most one a minute; the email leaves after the request, off its thread (`app.mail.async`), so the timing does not tell either |
+| `POST /api/v1/auth/password/reset/check` `{token}` | 200 `{expiresAt}` or 410 `LINK_INVALID` |
+| `POST /api/v1/auth/password/reset` `{token, password}` | 204; the link (30 min, `app.auth.reset-ttl`) works once, the newest one only; **every session ends**, a lock is lifted. It does not sign in, and never skips 2FA |
+
 #### Login failures
 
 | Situation | Answer |

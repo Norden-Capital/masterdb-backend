@@ -11,3 +11,6 @@ app:
   # refuses to start without one).
   encryption:
     required: false
+  # Emails inline, so tests can read them right after the request.
+  mail:
+    async: false

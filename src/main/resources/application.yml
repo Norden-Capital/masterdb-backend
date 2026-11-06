@@ -103,6 +103,8 @@ app:
       duration: ${APP_AUTH_LOCKOUT_DURATION:15m}
     # Invitation links work once and expire after this long.
     invite-ttl: 72h
+    # Password-reset links likewise.
+    reset-ttl: 30m
     two-factor:
       # Name shown in the authenticator app.
       issuer: MasterDB
@@ -122,6 +124,9 @@ app:
   # token masked; `log-links: true` (local profile only) prints the full link.
   mail:
     log-links: false
+    # Reset emails leave after the request, off its thread, so the answer to
+    # "forgot password" takes the same time whether the account exists.
+    async: true
 
   # Encrypts 2FA secrets at rest (crypto/SecretCipher): 64 hex characters, a
   # GitHub secret written to the server's .env. FAIL CLOSED like the proxy
