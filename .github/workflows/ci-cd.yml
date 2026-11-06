@@ -118,12 +118,13 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          PROXY_SECRET: ${{ secrets.PROXY_SECRET }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: POSTGRES_PASSWORD,GHCR_TOKEN
+          envs: POSTGRES_PASSWORD,PROXY_SECRET,GHCR_TOKEN
           script: |
             set -e
 
@@ -132,12 +133,16 @@ jobs:
             # Fail before touching anything if a secret is missing. Without it
             # compose would fall back to the public local-dev password.
             [ -n "$POSTGRES_PASSWORD" ] || { echo "::error::POSTGRES_PASSWORD is empty — add it under Settings > Secrets > Actions"; exit 1; }
+            # Without it the backend refuses to start (fail closed), so stop here
+            # with a clear message instead of a failed health check.
+            [ -n "$PROXY_SECRET" ] || { echo "::error::PROXY_SECRET is empty — add it under Settings > Secrets > Actions (same value as PROXY_SECRET in Vercel)"; exit 1; }
 
             # docker compose reads this automatically from the working directory.
             # umask 077: only the deploy user can read it.
             umask 077
             cat > .env <<EOF
             POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+            PROXY_SECRET=${PROXY_SECRET}
             EOF
 
             # The job token is only valid while this job runs, so log out right

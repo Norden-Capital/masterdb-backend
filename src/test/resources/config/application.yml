@@ -1,0 +1,9 @@
+# Test-only additions to src/main/resources/application.yml (Spring Boot loads
+# classpath:/config/application.yml on top of it). Never packaged in the jar.
+
+# The proxy-secret check is off in tests unless a test sets app.proxy.secret
+# (ProxySecretFilterTest does, and also proves production refuses to start
+# without one).
+app:
+  proxy:
+    required: false

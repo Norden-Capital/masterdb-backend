@@ -50,6 +50,29 @@ Running the jar some other way (IDE, `java -jar`): add the profile
 | `SPRING_DATASOURCE_USERNAME` | `masterdb` |
 | `SPRING_DATASOURCE_PASSWORD` | `masterdb-local-dev` |
 | `APP_DOCS_ENABLED` | `false` (`true` in the `local` profile) |
+| `PROXY_SECRET` | none: **required in production** (the app refuses to start without it, or with under 32 characters). In the `local` profile, unset = check off |
+| `APP_CORS_ALLOWED_ORIGINS` | `https://db.nordencapital.ca` (the `local` profile adds `http://localhost:3000`) |
+
+### Only the website may call the API
+
+The browser never calls this server. It calls `/api/...` on the website, whose server
+(the Route Handler `app/api/[...path]/route.ts` in masterdb-frontend) forwards the
+request here with the header `X-Proxy-Secret: <PROXY_SECRET>`.
+`web/security/ProxySecretFilter` refuses every request without the right value with
+401 `PROXY_SECRET_INVALID` (same answer whether the header was missing or wrong;
+constant-time comparison; the value is never logged). Only `/actuator/health` is open,
+for the deploy check. The same value lives in three places: the GitHub secret
+`PROXY_SECRET` (written to the server's `.env` by the deploy), the Vercel variable
+`PROXY_SECRET`, and `.env.local` of masterdb-frontend on a developer PC.
+
+Fail closed: the jar's default is `app.proxy.required: true`, so a server without the
+secret does not start (and the deploy stops earlier, with a clear message, when the
+GitHub secret is empty). Only the `local` profile and the tests set `required: false`.
+To try the check locally, set `PROXY_SECRET` before `./mvnw spring-boot:run`.
+
+`web/security/CorsConfig` lets browsers call the API only from
+`APP_CORS_ALLOWED_ORIGINS` (GET, POST, PUT, PATCH, DELETE, credentials allowed for the
+M1 login cookie). Refusals are 403 problem+json.
 
 Schema changes go in `src/main/resources/db/migration` as Flyway scripts
 (`V1__description.sql`, ...). Hibernate only validates the schema.
@@ -90,7 +113,8 @@ is `application/problem+json` ([RFC 9457](https://www.rfc-editor.org/rfc/rfc9457
 | `VALIDATION_FAILED` | 400 | Bean validation on a body or a parameter, wrong type (`?size=abc`), missing required parameter, bad `page`/`sort`, `BadRequestException.validation(...)` |
 | `MALFORMED_JSON` | 400 | Body missing, not JSON, or the wrong JSON shape |
 | `BAD_REQUEST` | 400 | `BadRequestException` and other client errors |
-| `UNAUTHORIZED` / `FORBIDDEN` | 401 / 403 | Reserved for auth (M1) |
+| `UNAUTHORIZED` / `FORBIDDEN` | 401 / 403 | Reserved for auth (M1); `FORBIDDEN` also for a refused CORS origin |
+| `PROXY_SECRET_INVALID` | 401 | The request did not come through the website (`X-Proxy-Secret` missing or wrong) |
 | `NOT_FOUND` | 404 | Unknown route, `NotFoundException` |
 | `METHOD_NOT_ALLOWED` | 405 | Wrong HTTP method (the `Allow` header lists the right ones) |
 | `NOT_ACCEPTABLE` | 406 | `Accept` the endpoint cannot produce |
@@ -312,4 +336,4 @@ Every push to `main` runs `.github/workflows/ci-cd.yml`: build and test, push th
 image to `ghcr.io/norden-capital/masterdb-backend`, then deploy over SSH to
 `/opt/masterdb` on the VPS. The server is prepared once with `deploy/vps-setup.sh`.
 
-Repository secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `POSTGRES_PASSWORD`.
+Repository secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `POSTGRES_PASSWORD`, `PROXY_SECRET`.

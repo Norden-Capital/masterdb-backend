@@ -50,7 +50,15 @@ public class ProblemErrorController implements ErrorController {
         }
 
         String detail = status.value() == 404 ? ProblemDetails.NOT_FOUND_DETAIL : reason(status);
-        ProblemDetail problem = ProblemDetails.of(status, ErrorCode.fromStatus(status), detail);
+        ErrorCode code = ErrorCode.fromStatus(status);
+        // A filter that refused the request may have named its own code and detail.
+        if (request.getAttribute(ProblemDetails.CODE_ATTRIBUTE) instanceof ErrorCode own) {
+            code = own;
+            if (request.getAttribute(ProblemDetails.DETAIL_ATTRIBUTE) instanceof String ownDetail) {
+                detail = ownDetail;
+            }
+        }
+        ProblemDetail problem = ProblemDetails.of(status, code, detail);
         Object uri = request.getAttribute(RequestDispatcher.ERROR_REQUEST_URI);
         if (uri instanceof String path) {
             try {

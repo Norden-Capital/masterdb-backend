@@ -17,6 +17,8 @@ public enum ErrorCode {
     /** Any other client mistake. */
     BAD_REQUEST,
     UNAUTHORIZED,
+    /** The request did not come through the MasterDB website (X-Proxy-Secret missing or wrong; which one is not said). */
+    PROXY_SECRET_INVALID,
     FORBIDDEN,
     NOT_FOUND,
     METHOD_NOT_ALLOWED,

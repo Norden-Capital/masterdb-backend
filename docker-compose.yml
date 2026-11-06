@@ -55,6 +55,9 @@ services:
       # the whole API to anyone. Already the default in application.yml; set
       # here too so a changed default can never switch them on in production.
       - APP_DOCS_ENABLED=false
+      # Only the website may call the API (ProxySecretFilter). From the .env the
+      # deploy writes; no fallback on purpose: empty = the backend refuses to start.
+      - PROXY_SECRET=${PROXY_SECRET:-}
 
       # SPRING_JPA_HIBERNATE_DDL_AUTO is deliberately absent. Environment
       # variables override application.yml, so setting it here would put

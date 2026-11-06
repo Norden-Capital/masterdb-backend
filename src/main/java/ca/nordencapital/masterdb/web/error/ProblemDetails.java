@@ -19,6 +19,14 @@ public final class ProblemDetails {
     public static final String REQUEST_ID = "requestId";
     public static final String ERRORS = "errors";
 
+    /**
+     * Request attributes a servlet filter sets before {@code sendError(...)} to
+     * give the /error body its own {@link ErrorCode} and detail instead of the
+     * status's defaults (see ProblemErrorController).
+     */
+    public static final String CODE_ATTRIBUTE = ProblemDetails.class.getName() + ".code";
+    public static final String DETAIL_ATTRIBUTE = ProblemDetails.class.getName() + ".detail";
+
     static final String VALIDATION_DETAIL = "The request has invalid fields.";
     static final String INTERNAL_DETAIL = "An unexpected error occurred. Quote the requestId when reporting it.";
     static final String NOT_FOUND_DETAIL = "The requested resource was not found.";
