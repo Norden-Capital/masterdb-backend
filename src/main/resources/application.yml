@@ -83,6 +83,29 @@ app:
       password: ${BOOTSTRAP_OWNER_PASSWORD:}
       name: ${BOOTSTRAP_OWNER_NAME:}
 
+  # Login and sessions (auth/, web/security/). The md_session cookie holds a
+  # random token; the database keeps its hash and checks it on every request.
+  # Durations: 30s, 15m, 12h, 7d.
+  auth:
+    session:
+      # Unused this long → signed out.
+      idle-timeout: ${APP_AUTH_SESSION_IDLE_TIMEOUT:12h}
+      # Signed out after this long, however much the session is used.
+      absolute-timeout: ${APP_AUTH_SESSION_ABSOLUTE_TIMEOUT:7d}
+      # last_seen_at is written at most this often per session.
+      touch-interval: 1m
+    cookie:
+      # HTTPS only. The `local` profile turns it off for plain-http development.
+      secure: true
+    lockout:
+      # Wrong passwords in a row before the account is locked, and for how long.
+      max-attempts: ${APP_AUTH_LOCKOUT_MAX_ATTEMPTS:5}
+      duration: ${APP_AUTH_LOCKOUT_DURATION:15m}
+    rate-limit:
+      # Login attempts per client address (X-Client-IP from the website).
+      per-minute: ${APP_AUTH_RATE_LIMIT_PER_MINUTE:10}
+      per-hour: ${APP_AUTH_RATE_LIMIT_PER_HOUR:50}
+
   # Browsers may call this API only from these sites (CorsConfig).
   # Comma-separated. The `local` profile adds http://localhost:3000.
   cors:

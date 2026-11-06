@@ -1,5 +1,6 @@
 package ca.nordencapital.masterdb.web;
 
+import ca.nordencapital.testsupport.OpenWebSecurity;
 import ca.nordencapital.testsupport.ProbeController;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -33,7 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * settings) exercised through test-only endpoints. Web slice: no database.
  */
 @WebMvcTest(ProbeController.class)
-@Import(ProbeController.class)
+@Import({ProbeController.class, OpenWebSecurity.class})
 @ExtendWith(OutputCaptureExtension.class)
 class ApiConventionsTest {
 

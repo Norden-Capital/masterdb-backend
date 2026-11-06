@@ -1,6 +1,8 @@
 package ca.nordencapital.masterdb.web.error;
 
 import ca.nordencapital.masterdb.web.request.RequestIdFilter;
+import ca.nordencapital.testsupport.OpenWebSecurity;
+import org.springframework.context.annotation.Import;
 import jakarta.servlet.RequestDispatcher;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,6 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * simulated by setting the attributes Tomcat sets.
  */
 @WebMvcTest(ProblemErrorController.class)
+@Import(OpenWebSecurity.class)
 @ExtendWith(OutputCaptureExtension.class)
 class ProblemErrorControllerTest {
 

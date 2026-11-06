@@ -53,6 +53,9 @@ Running the jar some other way (IDE, `java -jar`): add the profile
 | `PROXY_SECRET` | none: **required in production** (the app refuses to start without it, or with under 32 characters). In the `local` profile, unset = check off |
 | `APP_CORS_ALLOWED_ORIGINS` | `https://db.nordencapital.ca` (the `local` profile adds `http://localhost:3000`) |
 | `BOOTSTRAP_OWNER_EMAIL`, `BOOTSTRAP_OWNER_PASSWORD`, `BOOTSTRAP_OWNER_NAME` | none, optional: the first account (see "Users & owner bootstrap"). Unset = no account and a warning |
+| `APP_AUTH_SESSION_IDLE_TIMEOUT`, `APP_AUTH_SESSION_ABSOLUTE_TIMEOUT` | `12h`, `7d` (see "Authentication") |
+| `APP_AUTH_LOCKOUT_MAX_ATTEMPTS`, `APP_AUTH_LOCKOUT_DURATION` | `5`, `15m` |
+| `APP_AUTH_RATE_LIMIT_PER_MINUTE`, `APP_AUTH_RATE_LIMIT_PER_HOUR` | `10`, `50` login attempts per client address |
 
 ### Only the website may call the API
 
@@ -71,14 +74,18 @@ secret does not start (and the deploy stops earlier, with a clear message, when 
 GitHub secret is empty). Only the `local` profile and the tests set `required: false`.
 To try the check locally, set `PROXY_SECRET` before `./mvnw spring-boot:run`.
 
+Requests that carried the right secret are marked (`ProxySecretFilter.isVerified`); only
+those may name the visitor's address in `X-Client-IP` (see "Authentication").
+
 `web/security/CorsConfig` lets browsers call the API only from
 `APP_CORS_ALLOWED_ORIGINS` (GET, POST, PUT, PATCH, DELETE, credentials allowed for the
 M1 login cookie). Refusals are 403 problem+json.
 
 ### Users & owner bootstrap
 
-People who sign in live in `users` (`V1__users.sql`, code in `auth/`). Login, 2FA,
-permissions and invites come later, each with its own migration.
+People who sign in live in `users` (`V1__users.sql`, code in `auth/`). Login and
+sessions: see "Authentication". 2FA, permissions and invites come later, each with its
+own migration.
 
 | Column | Rule |
 | --- | --- |
@@ -92,8 +99,7 @@ permissions and invites come later, each with its own migration.
 | `failed_login_attempts`, `locked_until`, `last_login_at` | for the login step |
 | `created_at`, `updated_at` | timestamptz, `Instant` in Java |
 
-**Passwords** (`auth/password/PasswordConfig`): only `spring-security-crypto`, not the
-full Spring Security starter yet. A `DelegatingPasswordEncoder` whose default is BCrypt
+**Passwords** (`auth/password/PasswordConfig`): a `DelegatingPasswordEncoder` whose default is BCrypt
 cost 12: every hash starts with `{bcrypt}`, so a stronger algorithm (Argon2id) can be
 added later and old hashes keep working. BCrypt over Argon2id for now: no extra
 BouncyCastle dependency and no per-login memory budget to tune next to Postgres, for a
@@ -123,6 +129,108 @@ database (`docker compose up -d db`), or create nothing and see the warning.
 
 Schema changes go in `src/main/resources/db/migration` as Flyway scripts
 (`V1__description.sql`, ...). Hibernate only validates the schema.
+
+### Authentication
+
+Login, logout and sessions (M1.2): Spring Security, stateless, with our own session
+cookie. 2FA (M1.3) plugs into the login flow later; nothing else needs to change.
+
+#### Endpoints
+
+| Call | Open? | Answer |
+| --- | --- | --- |
+| `POST /api/v1/auth/login` `{email, password}` | yes | 200 `{"state":"AUTHENTICATED","user":{publicId,email,fullName,isOwner}}` + `Set-Cookie: md_session=...`. Failures: see below |
+| `POST /api/v1/auth/logout` | session | 204, the session is revoked and the cookie deleted (`Max-Age=0`) |
+| `GET /api/v1/auth/me` | session | 200 `{publicId,email,fullName,isOwner}` |
+
+**Everything else needs a session (fail closed)**, except `GET /api/v1/status`,
+`/actuator/health`, the API docs paths (404 unless docs are on) and `/error`. So an
+endpoint added later is protected unless `web/security/SecurityConfig` opens it on
+purpose. Without a session: 401 `UNAUTHENTICATED` (a cookie that did not work is deleted
+in the same answer); signed in but not allowed: 403 `FORBIDDEN` (used from M1.4 on). Even
+unknown routes answer 401 to signed-out callers.
+
+`state` is there for 2FA: M1.3 adds a second state (password right, code needed) and a
+second endpoint, via `auth/login/LoginResult`.
+
+#### Login failures
+
+| Situation | Answer |
+| --- | --- |
+| Unknown email, wrong password, invited or disabled account | 401 `INVALID_CREDENTIALS`, **the same body for all**, never which one. Each costs one BCrypt comparison (against a dummy hash when there is no usable one), so the timing is about the same too |
+| 5 wrong passwords in a row (`APP_AUTH_LOCKOUT_MAX_ATTEMPTS`) | 429 `ACCOUNT_LOCKED` with `Retry-After`, `retryAfterSeconds` and `lockedUntil`, for 15 minutes (`users.locked_until`). While locked the password is **not checked**, so the answer is the same whether it was right. A success resets the count; the end of a lock starts a fresh count. Made-up emails are locked the same way (in memory), so "locked" does not reveal which emails exist |
+| More than 10 attempts a minute or 50 an hour from one address | 429 `RATE_LIMITED` with `Retry-After`, before the body is read |
+| Empty or oversized fields | 400 `VALIDATION_FAILED` (values never echoed) |
+
+429 rather than 423 for the lock: 423 is WebDAV's "resource locked for editing"; 429 with
+`Retry-After` is what clients and proxies already understand as "come back later". The
+code tells the two 429s apart.
+
+#### Sessions
+
+- **Opaque token, not a JWT.** The cookie holds 32 random bytes (256 bits, base64url).
+  `user_sessions` (`V2__user_sessions.sql`) stores only their SHA-256, plus `public_id`,
+  `user_id`, `created_at`, `last_seen_at`, `expires_at`, `revoked_at`, `ip` and
+  `user_agent` (cut to 255). Every request looks the row up anyway, so a JWT would only
+  add a signing key to guard and rotate. With the row as the single truth, revoking it,
+  disabling the user or expiry takes effect on the very next request.
+- **Lifetime:** idle 12 h (`last_seen_at`, written at most once a minute), absolute
+  7 days (`expires_at`). A disabled user's sessions stop working at once.
+- **Cookie** `md_session`: `HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=604800`, **no
+  `Domain`**: the browser keeps it for exactly the host that set it, `db.nordencapital.ca`
+  (through the website's proxy). `Secure` is off only in the `local` profile
+  (`app.auth.cookie.secure`), because http://localhost:8080 is not HTTPS.
+- The active-sessions page and "log out everywhere" (M1.5) only need to set `revoked_at`.
+
+#### Client address
+
+The login rate limit, `user_sessions.ip` and the audit lines need the visitor's address,
+but every request arrives from Vercel. The website's proxy therefore sends `X-Client-IP`
+(from Vercel's `x-real-ip`, which Vercel sets itself) and drops any `X-Client-IP` /
+`X-Forwarded-For` the caller sent. `web/security/ClientIp` believes `X-Client-IP` **only
+when the same request had the right proxy secret**; otherwise it uses the connection's
+address (Caddy overwrites an outside `X-Forwarded-For`, and Tomcat accepts the header only
+from the local proxy). A raw `X-Forwarded-For` is never read.
+
+#### CSRF
+
+The cookie is `SameSite=Lax`, so browsers do not send it on cross-site POSTs. On top of
+that, the website's proxy (`app/api/[...path]/route.ts` + `lib/proxy-guards.ts` in
+masterdb-frontend) refuses any write whose `Origin` or `Sec-Fetch-Site` is not this site
+with 403 `CSRF_REJECTED`, before forwarding. The backend cannot check `Origin` itself (the
+proxy drops it), and no browser can reach the backend directly (proxy secret), so Spring
+Security's CSRF tokens are off.
+
+#### Audit log lines
+
+INFO, with the masked email, the user and session public ids, the client address and the
+request id; never a password, token or hash:
+
+```
+login succeeded: j***@nordencapital.ca user=<uuid> session=<uuid> ip=203.0.113.7 requestId=...
+login failed (wrong password): j***@nordencapital.ca attempts=2 ip=... requestId=...
+login failed (unknown account): n***@example.com ip=... requestId=...
+login failed (wrong password), account locked: j***@... attempts=5 until=... ip=... requestId=...
+login refused, account locked: j***@... until=... ip=... requestId=...
+login rate limit reached: ip=... retryAfter=42s requestId=...
+logout: j***@nordencapital.ca user=<uuid> session=<uuid> ip=... requestId=...
+```
+
+The reason in brackets is for the server log only; the API never says it. These events
+move into the activity-log table in M1.8.
+
+#### Filter order
+
+RequestIdFilter → RequestLoggingFilter → CORS → ProxySecretFilter → LoginRateLimitFilter →
+docs-off filter → Spring Security (session cookie, access rules) → controllers.
+
+#### Try it locally
+
+`./mvnw spring-boot:run` (the `local` profile: no proxy secret, cookie not `Secure`). Create
+the first account with the `BOOTSTRAP_OWNER_*` variables, then log in with the cookie jar
+from playbook phase 13, pointed at `http://localhost:8080`. The same commands check the live
+site through `https://db.nordencapital.ca`; the password is typed into a hidden prompt and
+piped to curl, never written to a file or the shell history.
 
 ### API conventions
 

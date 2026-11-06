@@ -17,8 +17,17 @@ public enum ErrorCode {
     /** Any other client mistake. */
     BAD_REQUEST,
     UNAUTHORIZED,
+    /** No valid session: no cookie, or one that is unknown, ended, expired or idle too long. Sign in again. */
+    UNAUTHENTICATED,
+    /** Login refused: unknown email, wrong password, or an account that cannot sign in (which one is never said). */
+    INVALID_CREDENTIALS,
+    /** Login refused: too many wrong passwords; has {@code retryAfterSeconds} and a {@code Retry-After} header. */
+    ACCOUNT_LOCKED,
+    /** Too many login attempts from one address; {@code Retry-After} says when to try again. */
+    RATE_LIMITED,
     /** The request did not come through the MasterDB website (X-Proxy-Secret missing or wrong; which one is not said). */
     PROXY_SECRET_INVALID,
+    /** Signed in, but not allowed to do this. */
     FORBIDDEN,
     NOT_FOUND,
     METHOD_NOT_ALLOWED,

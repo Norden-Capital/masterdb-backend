@@ -61,7 +61,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         if (!ex.getErrors().isEmpty()) {
             problem.setProperty(ProblemDetails.ERRORS, ex.getErrors());
         }
-        return handleExceptionInternal(ex, problem, new HttpHeaders(), ex.getStatus(), request);
+        ex.getProperties().forEach(problem::setProperty);
+        return handleExceptionInternal(ex, problem, ex.getHeaders(), ex.getStatus(), request);
     }
 
     /** Method validation on a class annotated {@code @Validated}. */

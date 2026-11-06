@@ -47,19 +47,24 @@ class MasterdbBackendApplicationTests {
         assertThat(version).startsWith("16.");
     }
 
-    /** Through real Tomcat, not MockMvc: unknown routes and container-level errors are problem+json too. */
+    /**
+     * Through real Tomcat, not MockMvc: refusals and container-level errors are
+     * problem+json too. An unknown route without a session is 401 (everything
+     * outside the open list needs a sign-in, known route or not); signed in, it
+     * is 404 (AuthFlowTest).
+     */
     @Test
     void realServerAnswersErrorsAsProblemJson() throws Exception {
         HttpClient http = HttpClient.newHttpClient();
 
         HttpResponse<String> unknown = http.send(HttpRequest.newBuilder(URI.create(base() + "/api/v1/nope?email=a@b.c"))
-                .header("Accept", "text/html").header("X-Request-Id", "it-404").build(),
+                .header("Accept", "text/html").header("X-Request-Id", "it-401").build(),
                 HttpResponse.BodyHandlers.ofString());
-        assertThat(unknown.statusCode()).isEqualTo(404);
+        assertThat(unknown.statusCode()).isEqualTo(401);
         assertThat(unknown.headers().firstValue("Content-Type")).hasValueSatisfying(
                 ct -> assertThat(ct).startsWith("application/problem+json"));
-        assertThat(unknown.headers().firstValue("X-Request-Id")).hasValue("it-404");
-        assertThat(unknown.body()).contains("\"code\":\"NOT_FOUND\"", "\"requestId\":\"it-404\"",
+        assertThat(unknown.headers().firstValue("X-Request-Id")).hasValue("it-401");
+        assertThat(unknown.body()).contains("\"code\":\"UNAUTHENTICATED\"", "\"requestId\":\"it-401\"",
                 "\"instance\":\"/api/v1/nope\"").doesNotContain("a@b.c");
 
         // An exception escaping a servlet filter never reaches the controller advice:
@@ -84,6 +89,8 @@ class MasterdbBackendApplicationTests {
                 throw new IllegalStateException("password=hunter2");
             });
             bean.addUrlPatterns(PATH);
+            // Before Spring Security (order -100), which would refuse the anonymous call first.
+            bean.setOrder(-1000);
             return bean;
         }
     }

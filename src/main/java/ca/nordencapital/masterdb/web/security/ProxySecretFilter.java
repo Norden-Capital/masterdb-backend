@@ -39,6 +39,8 @@ import java.security.MessageDigest;
  * check is off; with one, it is enforced as in production.
  *
  * <p>The header's value is never logged. The comparison is constant-time.
+ * A request that passed is marked ({@link #isVerified}); only then does
+ * {@link ClientIp} believe the website's {@code X-Client-IP}.
  *
  * <p>Runs after RequestIdFilter, RequestLoggingFilter and CORS, so every
  * rejection is logged with its request id and preflights are answered first.
@@ -52,6 +54,9 @@ public class ProxySecretFilter extends OncePerRequestFilter {
     /** 64 hex characters are generated; anything under 32 is a mistake (a placeholder, a truncated paste). */
     static final int MIN_LENGTH = 32;
     static final String DETAIL = "This API only answers requests from the MasterDB website.";
+
+    /** Set to TRUE on a request whose X-Proxy-Secret matched (see {@link #isVerified}). */
+    static final String VERIFIED_ATTRIBUTE = ProxySecretFilter.class.getName() + ".verified";
 
     private static final Logger log = LoggerFactory.getLogger(ProxySecretFilter.class);
 
@@ -85,6 +90,7 @@ public class ProxySecretFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         if (matches(request.getHeader(HEADER))) {
+            request.setAttribute(VERIFIED_ATTRIBUTE, Boolean.TRUE);
             chain.doFilter(request, response);
             return;
         }
@@ -93,6 +99,16 @@ public class ProxySecretFilter extends OncePerRequestFilter {
         request.setAttribute(ProblemDetails.CODE_ATTRIBUTE, ErrorCode.PROXY_SECRET_INVALID);
         request.setAttribute(ProblemDetails.DETAIL_ATTRIBUTE, DETAIL);
         response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+    }
+
+    /**
+     * True only when this request carried the right secret, so it really came
+     * from the website's server and its forwarded headers ({@code X-Client-IP})
+     * can be believed. False when the check is off (local, tests): then nothing
+     * proves where the request came from.
+     */
+    public static boolean isVerified(HttpServletRequest request) {
+        return Boolean.TRUE.equals(request.getAttribute(VERIFIED_ATTRIBUTE));
     }
 
     private boolean matches(String sent) {

@@ -1,5 +1,6 @@
 package ca.nordencapital.masterdb.status;
 
+import ca.nordencapital.testsupport.OpenWebSecurity;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.info.BuildProperties;
@@ -21,7 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** Web slice only: no database, no full context. */
 @WebMvcTest(StatusController.class)
-@Import(StatusControllerTest.Fixtures.class)
+@Import({StatusControllerTest.Fixtures.class, OpenWebSecurity.class})
 class StatusControllerTest {
 
     @TestConfiguration

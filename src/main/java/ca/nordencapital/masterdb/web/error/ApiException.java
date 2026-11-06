@@ -1,8 +1,10 @@
 package ca.nordencapital.masterdb.web.error;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Base for the errors the app throws on purpose. The global handler turns each
@@ -37,5 +39,15 @@ public abstract class ApiException extends RuntimeException {
     /** Per-field problems; empty unless the code is {@code VALIDATION_FAILED}. */
     public List<FieldViolation> getErrors() {
         return errors;
+    }
+
+    /** Extra response headers (for example {@code Retry-After}). None by default. */
+    public HttpHeaders getHeaders() {
+        return new HttpHeaders();
+    }
+
+    /** Extra fields for the error body, next to {@code code}. None by default. Never user input. */
+    public Map<String, Object> getProperties() {
+        return Map.of();
     }
 }
