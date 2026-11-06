@@ -9,14 +9,14 @@ import java.util.HexFormat;
 import java.util.regex.Pattern;
 
 /**
- * The cookie's token: 32 random bytes (256 bits) from {@link SecureRandom},
+ * Random tokens (session cookie, login challenge, invite and reset links): 32 random bytes (256 bits) from {@link SecureRandom},
  * base64url without padding (43 characters).
  *
  * <p>Only {@link #hash} of it is stored. A plain SHA-256 is enough here, unlike
  * for passwords: the token is random and 256 bits long, so there is nothing to
  * guess or look up, and the hash must be fast because it runs on every request.
  */
-final class SessionTokens {
+public final class SessionTokens {
 
     static final int BYTES = 32;
     /** Exactly what {@link #generate} produces; anything else is rejected before the database. */
@@ -28,18 +28,18 @@ final class SessionTokens {
     private SessionTokens() {
     }
 
-    static String generate() {
+    public static String generate() {
         byte[] bytes = new byte[BYTES];
         RANDOM.nextBytes(bytes);
         return ENCODER.encodeToString(bytes);
     }
 
-    static boolean isWellFormed(String token) {
+    public static boolean isWellFormed(String token) {
         return token != null && FORMAT.matcher(token).matches();
     }
 
     /** Lowercase hex SHA-256, the form stored in {@code user_sessions.token_hash}. */
-    static String hash(String token) {
+    public static String hash(String token) {
         try {
             MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
             return HexFormat.of().formatHex(sha256.digest(token.getBytes(StandardCharsets.US_ASCII)));

@@ -75,6 +75,18 @@ public class User {
     @Column(name = "last_login_at")
     private Instant lastLoginAt;
 
+    /** AES-GCM encrypted authenticator secret (SecretCipher, context "totp:" + id). Null = not enrolled. */
+    @Column(name = "totp_secret_enc", length = 200)
+    private String totpSecretEnc;
+
+    @Column(name = "totp_enabled_at")
+    private Instant totpEnabledAt;
+
+    /** The step of the last accepted code, so no code is accepted twice. */
+    @Setter
+    @Column(name = "totp_last_used_step")
+    private Long totpLastUsedStep;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -98,6 +110,23 @@ public class User {
         user.setEmail(email);
         user.fullName = Objects.requireNonNull(fullName, "fullName");
         return user;
+    }
+
+    public boolean isTwoFactorEnabled() {
+        return totpSecretEnc != null;
+    }
+
+    public void enableTwoFactor(String encryptedSecret, Instant now, long usedStep) {
+        this.totpSecretEnc = Objects.requireNonNull(encryptedSecret, "encryptedSecret");
+        this.totpEnabledAt = now;
+        this.totpLastUsedStep = usedStep;
+    }
+
+    /** Back to "must enrol at next sign-in" (an admin's 2FA reset). */
+    public void resetTwoFactor() {
+        this.totpSecretEnc = null;
+        this.totpEnabledAt = null;
+        this.totpLastUsedStep = null;
     }
 
     public void setEmail(String email) {

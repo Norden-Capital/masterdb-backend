@@ -53,6 +53,7 @@ Running the jar some other way (IDE, `java -jar`): add the profile
 | `PROXY_SECRET` | none: **required in production** (the app refuses to start without it, or with under 32 characters). In the `local` profile, unset = check off |
 | `APP_CORS_ALLOWED_ORIGINS` | `https://db.nordencapital.ca` (the `local` profile adds `http://localhost:3000`) |
 | `BOOTSTRAP_OWNER_EMAIL`, `BOOTSTRAP_OWNER_PASSWORD`, `BOOTSTRAP_OWNER_NAME` | none, optional: the first account (see "Users & owner bootstrap"). Unset = no account and a warning |
+| `ENCRYPTION_KEY` | none: **required in production** (64 hex characters; encrypts 2FA secrets; the app refuses to start without it). In the `local` profile, unset = a random key per run. **Never change it once set** |
 | `APP_AUTH_SESSION_IDLE_TIMEOUT`, `APP_AUTH_SESSION_ABSOLUTE_TIMEOUT` | `12h`, `7d` (see "Authentication") |
 | `APP_AUTH_LOCKOUT_MAX_ATTEMPTS`, `APP_AUTH_LOCKOUT_DURATION` | `5`, `15m` |
 | `APP_AUTH_RATE_LIMIT_PER_MINUTE`, `APP_AUTH_RATE_LIMIT_PER_HOUR` | `10`, `50` login attempts per client address |
@@ -132,14 +133,17 @@ Schema changes go in `src/main/resources/db/migration` as Flyway scripts
 
 ### Authentication
 
-Login, logout and sessions (M1.2): Spring Security, stateless, with our own session
-cookie. 2FA (M1.3) plugs into the login flow later; nothing else needs to change.
+Login, logout and sessions (M1.2) and mandatory two-factor sign-in (M1.3): Spring
+Security, stateless, with our own session cookie.
 
 #### Endpoints
 
 | Call | Open? | Answer |
 | --- | --- | --- |
-| `POST /api/v1/auth/login` `{email, password}` | yes | 200 `{"state":"AUTHENTICATED","user":{publicId,email,fullName,isOwner}}` + `Set-Cookie: md_session=...`. Failures: see below |
+| `POST /api/v1/auth/login` `{email, password}` | yes | 200 `{"state":"TWO_FACTOR_REQUIRED"}` or `{"state":"TWO_FACTOR_SETUP_REQUIRED"}` + `Set-Cookie: md_preauth=...`. **Never a session by itself.** Failures: see below |
+| `POST /api/v1/auth/login/2fa` `{code}` | `md_preauth` | an authenticator code or a recovery code → 200 `{"state":"AUTHENTICATED","user":{publicId,email,fullName,isOwner}}` + `Set-Cookie: md_session=...` |
+| `POST /api/v1/auth/2fa/setup` | `md_preauth` (setup step) | 200 `{secret, otpauthUri, issuer, account}`: the QR code's content (`otpauth://totp/MasterDB:<email>?...`). Again = a new secret |
+| `POST /api/v1/auth/2fa/setup/confirm` `{code}` | `md_preauth` (setup step) | the first code from the app → 200 `{"state":"AUTHENTICATED","user":{...},"recoveryCodes":[10 codes]}` + `md_session`. The codes are shown **this once** |
 | `POST /api/v1/auth/logout` | session | 204, the session is revoked and the cookie deleted (`Max-Age=0`) |
 | `GET /api/v1/auth/me` | session | 200 `{publicId,email,fullName,isOwner}` |
 
@@ -150,8 +154,29 @@ purpose. Without a session: 401 `UNAUTHENTICATED` (a cookie that did not work is
 in the same answer); signed in but not allowed: 403 `FORBIDDEN` (used from M1.4 on). Even
 unknown routes answer 401 to signed-out callers.
 
-`state` is there for 2FA: M1.3 adds a second state (password right, code needed) and a
-second endpoint, via `auth/login/LoginResult`.
+#### Two-factor (M1.3)
+
+- **Mandatory for everyone.** A right password opens a *login challenge*
+  (`login_challenges`, `V3__two_factor.sql`): token in the cookie `md_preauth`
+  (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth; Max-Age=600`), SHA-256 in the
+  DB, 10 minutes, 5 wrong codes, single use. Only the code starts the session.
+- **First sign-in without 2FA** (the Owner after the first deploy, every invited user):
+  `TWO_FACTOR_SETUP_REQUIRED` → `/2fa/setup` (QR) → `/2fa/setup/confirm` with the first
+  code → signed in, with 10 recovery codes (`xxxxx-xxxxx`), shown once.
+- **TOTP** (RFC 6238, SHA1, 6 digits, 30 s; Google Authenticator, 1Password, ...):
+  ±1 step of drift; **each step is accepted once** (`users.totp_last_used_step`), so a
+  code cannot be replayed.
+- **At rest:** the secret AES-256-GCM encrypted with `ENCRYPTION_KEY`
+  (`crypto/SecretCipher`, bound to the user id); recovery codes as HMAC-SHA256 with a key
+  derived from `ENCRYPTION_KEY`, so a database copy alone cannot brute-force them.
+- **Guessing:** wrong codes count against the same 5-strikes account lock as wrong
+  passwords, and a right password alone does **not** reset that count (only a full
+  sign-in does). Code attempts have their own per-address rate limit (10/min, 50/h).
+- Errors: 401 `INVALID_TWO_FACTOR_CODE` (wrong or reused code), 401
+  `LOGIN_CHALLENGE_INVALID` (no, expired or used-up challenge: sign in again), 429
+  `ACCOUNT_LOCKED`, 429 `RATE_LIMITED`.
+- **`ENCRYPTION_KEY` must never change** once 2FA is in use: every enrolled authenticator
+  would stop working (then reset everyone's 2FA, M1.5).
 
 #### Login failures
 

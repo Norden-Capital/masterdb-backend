@@ -7,3 +7,7 @@
 app:
   proxy:
     required: false
+  # Random encryption key per test run (SecretCipherTest proves production
+  # refuses to start without one).
+  encryption:
+    required: false

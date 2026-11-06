@@ -20,6 +20,12 @@ import java.time.Duration;
 public class SessionCookie {
 
     public static final String NAME = "md_session";
+    /**
+     * The 2FA step's cookie: the login challenge between password and code.
+     * Only for the auth endpoints (Path=/api/v1/auth), SameSite=Strict, 10 min.
+     */
+    public static final String PREAUTH_NAME = "md_preauth";
+    static final String PREAUTH_PATH = "/api/v1/auth";
 
     private final boolean secure;
 
@@ -36,18 +42,40 @@ public class SessionCookie {
         return base("").maxAge(Duration.ZERO).build();
     }
 
-    /** The cookie's value from the request, or null. */
+    public ResponseCookie createPreAuth(String token, Duration maxAge) {
+        return preAuth(token).maxAge(maxAge).build();
+    }
+
+    public ResponseCookie clearPreAuth() {
+        return preAuth("").maxAge(Duration.ZERO).build();
+    }
+
+    /** The session cookie's value from the request, or null. */
     public static String read(HttpServletRequest request) {
+        return read(request, NAME);
+    }
+
+    /** The 2FA-step cookie's value, or null. */
+    public static String readPreAuth(HttpServletRequest request) {
+        return read(request, PREAUTH_NAME);
+    }
+
+    private static String read(HttpServletRequest request, String name) {
         Cookie[] cookies = request.getCookies();
         if (cookies == null) {
             return null;
         }
         for (Cookie cookie : cookies) {
-            if (NAME.equals(cookie.getName()) && cookie.getValue() != null && !cookie.getValue().isEmpty()) {
+            if (name.equals(cookie.getName()) && cookie.getValue() != null && !cookie.getValue().isEmpty()) {
                 return cookie.getValue();
             }
         }
         return null;
+    }
+
+    private ResponseCookie.ResponseCookieBuilder preAuth(String value) {
+        return ResponseCookie.from(PREAUTH_NAME, value).httpOnly(true).secure(secure).sameSite("Strict")
+                .path(PREAUTH_PATH);
     }
 
     private ResponseCookie.ResponseCookieBuilder base(String value) {

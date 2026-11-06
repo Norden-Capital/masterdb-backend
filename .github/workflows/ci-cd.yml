@@ -119,6 +119,8 @@ jobs:
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           PROXY_SECRET: ${{ secrets.PROXY_SECRET }}
+          # Encrypts 2FA secrets at rest (64 hex characters). Required.
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
           # Optional: the first account, see the .env step below.
           BOOTSTRAP_OWNER_EMAIL: ${{ secrets.BOOTSTRAP_OWNER_EMAIL }}
           BOOTSTRAP_OWNER_PASSWORD: ${{ secrets.BOOTSTRAP_OWNER_PASSWORD }}
@@ -128,7 +130,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: POSTGRES_PASSWORD,PROXY_SECRET,BOOTSTRAP_OWNER_EMAIL,BOOTSTRAP_OWNER_PASSWORD,BOOTSTRAP_OWNER_NAME,GHCR_TOKEN
+          envs: POSTGRES_PASSWORD,PROXY_SECRET,ENCRYPTION_KEY,BOOTSTRAP_OWNER_EMAIL,BOOTSTRAP_OWNER_PASSWORD,BOOTSTRAP_OWNER_NAME,GHCR_TOKEN
           script: |
             set -e
 
@@ -140,6 +142,9 @@ jobs:
             # Without it the backend refuses to start (fail closed), so stop here
             # with a clear message instead of a failed health check.
             [ -n "$PROXY_SECRET" ] || { echo "::error::PROXY_SECRET is empty — add it under Settings > Secrets > Actions (same value as PROXY_SECRET in Vercel)"; exit 1; }
+            # Same for the key that encrypts 2FA secrets. Never change it once set:
+            # every enrolled authenticator would stop working.
+            [ -n "$ENCRYPTION_KEY" ] || { echo "::error::ENCRYPTION_KEY is empty — add it under Settings > Secrets > Actions (64 hex characters, see README)"; exit 1; }
 
             # BOOTSTRAP_OWNER_* create the first account, the Owner, and only on an
             # empty database (OwnerBootstrap); once any user exists they are ignored.
@@ -170,6 +175,7 @@ jobs:
             cat > .env <<EOF
             POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
             PROXY_SECRET=${PROXY_SECRET}
+            ENCRYPTION_KEY=${ENCRYPTION_KEY}
             BOOTSTRAP_OWNER_EMAIL='${BOOTSTRAP_OWNER_EMAIL}'
             BOOTSTRAP_OWNER_PASSWORD='${BOOTSTRAP_OWNER_PASSWORD}'
             BOOTSTRAP_OWNER_NAME='${BOOTSTRAP_OWNER_NAME}'

@@ -20,3 +20,8 @@ app:
   auth:
     cookie:
       secure: false
+
+  # No ENCRYPTION_KEY needed on your PC: a random key per run (2FA enrolments
+  # are then lost at restart). Set ENCRYPTION_KEY to keep them.
+  encryption:
+    required: false

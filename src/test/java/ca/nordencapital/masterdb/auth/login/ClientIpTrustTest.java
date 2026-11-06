@@ -2,6 +2,7 @@ package ca.nordencapital.masterdb.auth.login;
 
 import ca.nordencapital.masterdb.auth.user.User;
 import ca.nordencapital.masterdb.auth.user.UserRepository;
+import ca.nordencapital.masterdb.crypto.SecretCipher;
 import ca.nordencapital.masterdb.web.security.LoginRateLimiter;
 import ca.nordencapital.testsupport.MutableClock;
 import ca.nordencapital.testsupport.TestDatabase;
@@ -20,7 +21,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import java.net.http.HttpResponse;
 import java.time.Instant;
 
-import static ca.nordencapital.masterdb.auth.login.AuthTestClient.token;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -60,8 +60,11 @@ class ClientIpTrustTest {
     MutableClock clock;
     @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    SecretCipher cipher;
 
     AuthTestClient client;
+    TwoFactorFixture twoFactor;
 
     @BeforeEach
     void setUp() {
@@ -71,6 +74,8 @@ class ClientIpTrustTest {
         users.deleteAll();
         users.save(User.newOwner(EMAIL, "Olivia Owner", encoder.encode(PASSWORD)));
         client = new AuthTestClient(port);
+        twoFactor = new TwoFactorFixture(users, cipher, clock, client);
+        twoFactor.enrol(EMAIL);
     }
 
     @AfterEach
@@ -81,13 +86,11 @@ class ClientIpTrustTest {
 
     @Test
     void theWebsitesClientIpIsRecordedWithTheSecret() throws Exception {
-        HttpResponse<String> response = client.login(EMAIL, PASSWORD,
-                "X-Proxy-Secret", SECRET, "X-Client-IP", "203.0.113.7");
-        assertThat(response.statusCode()).isEqualTo(200);
+        String token = twoFactor.signIn(EMAIL, PASSWORD, "X-Proxy-Secret", SECRET, "X-Client-IP", "203.0.113.7");
         assertThat(jdbc.queryForObject("select ip from user_sessions", String.class)).isEqualTo("203.0.113.7");
+        assertThat(jdbc.queryForObject("select ip from login_challenges", String.class)).isEqualTo("203.0.113.7");
 
         // The session works through the website (cookie + secret) and not without the secret.
-        String token = token(response);
         assertThat(client.send("GET", "/api/v1/auth/me", token, null, "X-Proxy-Secret", SECRET).statusCode())
                 .isEqualTo(200);
         HttpResponse<String> direct = client.me(token);
@@ -97,7 +100,7 @@ class ClientIpTrustTest {
 
     @Test
     void aMalformedClientIpFallsBackToTheConnection() throws Exception {
-        client.login(EMAIL, PASSWORD, "X-Proxy-Secret", SECRET, "X-Client-IP", "203.0.113.7, 10.0.0.1");
+        twoFactor.signIn(EMAIL, PASSWORD, "X-Proxy-Secret", SECRET, "X-Client-IP", "203.0.113.7, 10.0.0.1");
         assertThat(jdbc.queryForObject("select ip from user_sessions", String.class)).isEqualTo("127.0.0.1");
     }
 
@@ -122,9 +125,7 @@ class ClientIpTrustTest {
         assertThat(limited.body()).contains("\"code\":\"RATE_LIMITED\"");
 
         // Another visitor behind the same website server is not affected.
-        HttpResponse<String> other = client.login(EMAIL, PASSWORD, "X-Proxy-Secret", SECRET,
-                "X-Client-IP", "2001:db8::1");
-        assertThat(other.statusCode()).isEqualTo(200);
+        twoFactor.signIn(EMAIL, PASSWORD, "X-Proxy-Secret", SECRET, "X-Client-IP", "2001:db8::1");
         assertThat(jdbc.queryForObject("select ip from user_sessions", String.class)).isEqualTo("2001:db8::1");
     }
 }

@@ -58,6 +58,9 @@ services:
       # Only the website may call the API (ProxySecretFilter). From the .env the
       # deploy writes; no fallback on purpose: empty = the backend refuses to start.
       - PROXY_SECRET=${PROXY_SECRET:-}
+      # Key for 2FA secrets at rest (SecretCipher). No fallback: empty = the
+      # backend refuses to start.
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
 
       # The first account, the Owner (OwnerBootstrap): used only while the users
       # table is empty, ignored forever after. Optional, from the .env the deploy

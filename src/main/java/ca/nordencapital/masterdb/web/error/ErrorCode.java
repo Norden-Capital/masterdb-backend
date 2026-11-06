@@ -23,6 +23,10 @@ public enum ErrorCode {
     INVALID_CREDENTIALS,
     /** Login refused: too many wrong passwords; has {@code retryAfterSeconds} and a {@code Retry-After} header. */
     ACCOUNT_LOCKED,
+    /** The 2FA code (authenticator or recovery code) is wrong or was already used. */
+    INVALID_TWO_FACTOR_CODE,
+    /** The 2FA step has no valid login challenge (expired, used up, missing): sign in again. */
+    LOGIN_CHALLENGE_INVALID,
     /** Too many login attempts from one address; {@code Retry-After} says when to try again. */
     RATE_LIMITED,
     /** The request did not come through the MasterDB website (X-Proxy-Secret missing or wrong; which one is not said). */

@@ -10,13 +10,32 @@ import java.util.Objects;
  * value has a default there; environment variables override them.
  */
 @ConfigurationProperties("app.auth")
-public record AuthProperties(Session session, Cookie cookie, Lockout lockout, RateLimit rateLimit) {
+public record AuthProperties(Session session, Cookie cookie, Lockout lockout, RateLimit rateLimit,
+        TwoFactor twoFactor) {
 
     public AuthProperties {
         Objects.requireNonNull(session, "app.auth.session");
         Objects.requireNonNull(cookie, "app.auth.cookie");
         Objects.requireNonNull(lockout, "app.auth.lockout");
         Objects.requireNonNull(rateLimit, "app.auth.rate-limit");
+        Objects.requireNonNull(twoFactor, "app.auth.two-factor");
+    }
+
+    /**
+     * @param issuer        name shown in the authenticator app (default MasterDB)
+     * @param challengeTtl  time between password and code (default 10 min)
+     * @param maxAttempts   wrong codes per challenge before signing in again (default 5)
+     */
+    public record TwoFactor(String issuer, Duration challengeTtl, int maxAttempts) {
+        public TwoFactor {
+            if (issuer == null || issuer.isBlank()) {
+                throw new IllegalArgumentException("app.auth.two-factor.issuer must be set");
+            }
+            positive(challengeTtl, "app.auth.two-factor.challenge-ttl");
+            if (maxAttempts < 1) {
+                throw new IllegalArgumentException("app.auth.two-factor.max-attempts must be at least 1");
+            }
+        }
     }
 
     /**

@@ -17,7 +17,9 @@ import java.io.IOException;
 import java.util.OptionalLong;
 
 /**
- * Applies {@link LoginRateLimiter} to {@code POST /api/v1/auth/login}, before
+ * Applies {@link LoginRateLimiter} to the sign-in steps (password: {@code POST
+ * /api/v1/auth/login}; codes: {@code /login/2fa}, {@code /2fa/setup/confirm}),
+ * per client address and step, before
  * the body is read or a password hashed. Over the limit: 429
  * {@code RATE_LIMITED} problem+json with {@code Retry-After} (seconds).
  *
@@ -42,17 +44,26 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
         this.clientIp = clientIp;
     }
 
+    /** Rate-limited POST paths and their bucket: passwords and codes are counted separately. */
+    static final java.util.Map<String, String> BUCKETS = java.util.Map.of(
+            LOGIN_PATH, "login",
+            "/api/v1/auth/login/2fa", "code",
+            "/api/v1/auth/2fa/setup/confirm", "code");
+
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        String path = request.getServletPath() + (request.getPathInfo() != null ? request.getPathInfo() : "");
-        return !"POST".equals(request.getMethod()) || !LOGIN_PATH.equals(path);
+        return !"POST".equals(request.getMethod()) || !BUCKETS.containsKey(path(request));
+    }
+
+    private static String path(HttpServletRequest request) {
+        return request.getServletPath() + (request.getPathInfo() != null ? request.getPathInfo() : "");
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         String address = clientIp.resolve(request);
-        OptionalLong retryAfter = limiter.tryAcquire(address);
+        OptionalLong retryAfter = limiter.tryAcquire(BUCKETS.get(path(request)) + "|" + address);
         if (retryAfter.isEmpty()) {
             chain.doFilter(request, response);
             return;

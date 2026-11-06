@@ -32,8 +32,9 @@ import java.io.IOException;
  * which reads the session cookie ({@link SessionAuthenticationFilter}) and
  * applies the rules below.
  *
- * <p><b>Rules (fail closed).</b> Open without a session: {@code POST
- * /api/v1/auth/login}, {@code GET /api/v1/status}, {@code /actuator/health},
+ * <p><b>Rules (fail closed).</b> Open without a session: the sign-in steps
+ * ({@code POST /api/v1/auth/login}, {@code /login/2fa}, {@code /2fa/setup},
+ * {@code /2fa/setup/confirm}), {@code GET /api/v1/status}, {@code /actuator/health},
  * the API docs paths (which answer 404 unless docs are switched on, i.e.
  * locally), and error dispatches. <b>Everything else needs a signed-in
  * user</b>, so an endpoint added later is protected unless it is listed here on
@@ -77,7 +78,10 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.FORWARD).permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
+                        // The sign-in steps. The 2FA ones prove themselves with the
+                        // md_preauth cookie (a login challenge), checked by TwoFactorService.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/login/2fa",
+                                "/api/v1/auth/2fa/setup", "/api/v1/auth/2fa/setup/confirm").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/status").permitAll()
                         // Answer 404 unless docs are on (DocsDisabledConfig runs before this chain).
                         .requestMatchers("/api/docs", "/api/v3/api-docs", "/api/v3/api-docs/**",

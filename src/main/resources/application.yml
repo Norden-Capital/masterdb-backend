@@ -101,10 +101,26 @@ app:
       # Wrong passwords in a row before the account is locked, and for how long.
       max-attempts: ${APP_AUTH_LOCKOUT_MAX_ATTEMPTS:5}
       duration: ${APP_AUTH_LOCKOUT_DURATION:15m}
+    two-factor:
+      # Name shown in the authenticator app.
+      issuer: MasterDB
+      # Time between the password and the code, and wrong codes allowed in it.
+      challenge-ttl: 10m
+      max-attempts: 5
     rate-limit:
-      # Login attempts per client address (X-Client-IP from the website).
+      # Login and 2FA-code attempts per client address (X-Client-IP from the
+      # website), counted separately.
       per-minute: ${APP_AUTH_RATE_LIMIT_PER_MINUTE:10}
       per-hour: ${APP_AUTH_RATE_LIMIT_PER_HOUR:50}
+
+  # Encrypts 2FA secrets at rest (crypto/SecretCipher): 64 hex characters, a
+  # GitHub secret written to the server's .env. FAIL CLOSED like the proxy
+  # secret: missing or malformed = the app refuses to start. Only the `local`
+  # profile and the tests set `required: false` (then a random key per run).
+  # NEVER change the key once set: enrolled authenticators would stop working.
+  encryption:
+    key: ${ENCRYPTION_KEY:}
+    required: true
 
   # Browsers may call this API only from these sites (CorsConfig).
   # Comma-separated. The `local` profile adds http://localhost:3000.

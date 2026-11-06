@@ -3,6 +3,7 @@ package ca.nordencapital.masterdb.auth.login;
 import ca.nordencapital.masterdb.auth.user.User;
 import ca.nordencapital.masterdb.auth.user.UserRepository;
 import ca.nordencapital.masterdb.auth.user.UserStatus;
+import ca.nordencapital.masterdb.crypto.SecretCipher;
 import ca.nordencapital.masterdb.web.security.LoginRateLimiter;
 import ca.nordencapital.testsupport.MutableClock;
 import ca.nordencapital.testsupport.TestDatabase;
@@ -82,8 +83,11 @@ class AuthFlowTest {
     LoginService loginService;
     @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    SecretCipher cipher;
 
     AuthTestClient client;
+    TwoFactorFixture twoFactor;
 
     @BeforeEach
     void setUp() {
@@ -101,6 +105,10 @@ class AuthFlowTest {
         users.save(disabled);
         users.save(User.newInvited(INVITED, "New User"));
         client = new AuthTestClient(port);
+        twoFactor = new TwoFactorFixture(users, cipher, clock, client);
+        twoFactor.enrol(OWNER);
+        twoFactor.enrol(MEMBER);
+        twoFactor.enrol(DISABLED);
     }
 
     @AfterEach
@@ -110,8 +118,12 @@ class AuthFlowTest {
     }
 
     static User active(String email, String name) {
+        return activeWith(email, name, passwordHash);
+    }
+
+    static User activeWith(String email, String name, String hash) {
         User user = User.newInvited(email, name);
-        user.setPasswordHash(passwordHash);
+        user.setPasswordHash(hash);
         user.setStatus(UserStatus.ACTIVE);
         return user;
     }
@@ -120,19 +132,30 @@ class AuthFlowTest {
 
     @Test
     void loginSetsAProperCookieAndReturnsTheUser() throws Exception {
-        HttpResponse<String> response = client.login(" Owner@Example.COM ", PASSWORD);
+        HttpResponse<String> first = client.login(" Owner@Example.COM ", PASSWORD);
+        assertThat(first.statusCode()).isEqualTo(200);
+        assertThat(first.body()).isEqualTo("{\"state\":\"TWO_FACTOR_REQUIRED\"}");
+        assertThat(sessionCookies(first)).isEmpty();
+        assertThat(first.headers().allValues("Set-Cookie")).singleElement().satisfies(c -> assertThat(c)
+                .startsWith("md_preauth=").contains("HttpOnly", "Secure", "SameSite=Strict", "Path=/api/v1/auth",
+                        "Max-Age=600").doesNotContainIgnoringCase("Domain"));
 
+        HttpResponse<String> response = client.code("/api/v1/auth/login/2fa", AuthTestClient.preauth(first),
+                twoFactor.nextCode(OWNER));
         assertThat(response.statusCode()).isEqualTo(200);
         String owner = users.findByEmail(OWNER).orElseThrow().getPublicId().toString();
         assertThat(response.body()).contains("\"state\":\"AUTHENTICATED\"", "\"publicId\":\"" + owner + "\"",
                 "\"email\":\"owner@example.com\"", "\"fullName\":\"Olivia Owner\"", "\"isOwner\":true")
-                .doesNotContain("passwordHash", "\"id\"", "token");
+                .doesNotContain("passwordHash", "\"id\"", "token", "recoveryCodes");
 
         List<String> cookies = sessionCookies(response);
         assertThat(cookies).hasSize(1);
         String cookie = cookies.getFirst();
         assertThat(cookie).contains("HttpOnly", "Secure", "SameSite=Lax", "Path=/", "Max-Age=604800")
                 .doesNotContainIgnoringCase("Domain");
+        // The 2FA-step cookie is deleted.
+        assertThat(response.headers().allValues("Set-Cookie")).anySatisfy(c ->
+                assertThat(c).startsWith("md_preauth=;").contains("Max-Age=0"));
         String token = token(response);
         assertThat(token).hasSize(43).matches("[A-Za-z0-9_-]+");
 
@@ -200,8 +223,7 @@ class AuthFlowTest {
         assertLocked(client.login(MEMBER, PASSWORD), 1);
 
         clock.advance(Duration.ofSeconds(1));
-        HttpResponse<String> after = client.login(MEMBER, PASSWORD);
-        assertThat(after.statusCode()).isEqualTo(200);
+        twoFactor.signIn(MEMBER, PASSWORD);
         User member = users.findByEmail(MEMBER).orElseThrow();
         assertThat(member.getFailedLoginAttempts()).isZero();
         assertThat(member.getLockedUntil()).isNull();
@@ -212,7 +234,7 @@ class AuthFlowTest {
         for (int i = 0; i < 4; i++) {
             client.login(MEMBER, WRONG);
         }
-        assertThat(client.login(MEMBER, PASSWORD).statusCode()).isEqualTo(200);
+        twoFactor.signIn(MEMBER, PASSWORD);
         for (int i = 1; i <= 4; i++) {
             assertThat(client.login(MEMBER, WRONG).statusCode()).as("attempt %d", i).isEqualTo(401);
         }
@@ -282,7 +304,7 @@ class AuthFlowTest {
         assertThat(limited.statusCode()).isEqualTo(429);
 
         limiter.clear();
-        assertThat(client.login(OWNER, PASSWORD, "X-Client-IP", "203.0.113.50").statusCode()).isEqualTo(200);
+        twoFactor.signIn(OWNER, PASSWORD, "X-Client-IP", "203.0.113.50");
         assertThat(jdbc.queryForObject("select ip from user_sessions", String.class)).isEqualTo("127.0.0.1");
     }
 
@@ -297,7 +319,7 @@ class AuthFlowTest {
         assertThat(anonymous.body()).contains("\"code\":\"UNAUTHENTICATED\"", "\"instance\":\"/api/v1/auth/me\"");
         assertThat(sessionCookies(anonymous)).isEmpty();
 
-        String token = token(client.login(MEMBER, PASSWORD));
+        String token = twoFactor.signIn(MEMBER, PASSWORD);
         HttpResponse<String> me = client.me(token);
         assertThat(me.statusCode()).isEqualTo(200);
         assertThat(me.body()).contains("\"email\":\"jane@example.com\"", "\"fullName\":\"Jane Member\"",
@@ -317,8 +339,8 @@ class AuthFlowTest {
 
     @Test
     void logoutEndsTheSessionAtOnce() throws Exception {
-        String token = token(client.login(MEMBER, PASSWORD));
-        String other = token(client.login(MEMBER, PASSWORD));
+        String token = twoFactor.signIn(MEMBER, PASSWORD);
+        String other = twoFactor.signIn(MEMBER, PASSWORD);
 
         HttpResponse<String> logout = client.logout(token);
         assertThat(logout.statusCode()).isEqualTo(204);
@@ -335,7 +357,7 @@ class AuthFlowTest {
 
     @Test
     void anIdleSessionEndsAfterTwelveHours() throws Exception {
-        String token = token(client.login(MEMBER, PASSWORD));
+        String token = twoFactor.signIn(MEMBER, PASSWORD);
 
         clock.advance(Duration.ofHours(11));
         assertThat(client.me(token).statusCode()).isEqualTo(200); // use moves last_seen_at
@@ -347,7 +369,7 @@ class AuthFlowTest {
 
     @Test
     void aSessionEndsAfterSevenDaysHoweverMuchItIsUsed() throws Exception {
-        String token = token(client.login(MEMBER, PASSWORD));
+        String token = twoFactor.signIn(MEMBER, PASSWORD);
         List<Integer> statuses = new ArrayList<>();
         for (int i = 1; i <= 16; i++) { // every 11 h: never idle; 15 × 11 h = 165 h < 168 h < 176 h
             clock.advance(Duration.ofHours(11));
@@ -359,7 +381,7 @@ class AuthFlowTest {
 
     @Test
     void disablingAUserEndsTheirSessionsAtOnce() throws Exception {
-        String token = token(client.login(MEMBER, PASSWORD));
+        String token = twoFactor.signIn(MEMBER, PASSWORD);
         User member = users.findByEmail(MEMBER).orElseThrow();
         member.setStatus(UserStatus.DISABLED);
         users.save(member);
@@ -368,7 +390,7 @@ class AuthFlowTest {
 
     @Test
     void signedInUnknownRouteIs404() throws Exception {
-        String token = token(client.login(MEMBER, PASSWORD));
+        String token = twoFactor.signIn(MEMBER, PASSWORD);
         HttpResponse<String> response = client.send("GET", "/api/v1/nope", token, null);
         assertThat(response.statusCode()).isEqualTo(404);
         assertThat(response.body()).contains("\"code\":\"NOT_FOUND\"");
@@ -386,8 +408,7 @@ class AuthFlowTest {
 
     @Test
     void auditLinesHaveMaskedEmailAndRequestIdButNoSecrets(CapturedOutput output) throws Exception {
-        HttpResponse<String> ok = client.login(MEMBER, PASSWORD, "X-Request-Id", "login-ok-1");
-        String token = token(ok);
+        String token = twoFactor.signIn(MEMBER, PASSWORD, "X-Request-Id", "login-ok-1");
         client.login(MEMBER, WRONG, "X-Request-Id", "login-bad-1");
         client.me(token);
         client.logout(token);
@@ -400,7 +421,8 @@ class AuthFlowTest {
                 .contains("login failed (wrong password): j***@example.com", "requestId=login-bad-1")
                 .contains("logout: j***@example.com")
                 .contains("account locked: o***@example.com")
-                .doesNotContain(PASSWORD, WRONG, token, sha256(token), passwordHash)
+                .doesNotContain(PASSWORD, WRONG, token, sha256(token), passwordHash,
+                        ca.nordencapital.masterdb.auth.twofactor.Totp.base32(TwoFactorFixture.SECRET))
                 .doesNotContain(MEMBER, OWNER)
                 .doesNotContain("Using generated security password");
     }

@@ -2,8 +2,7 @@ package ca.nordencapital.masterdb.auth.login;
 
 import ca.nordencapital.masterdb.auth.AuthProperties;
 import ca.nordencapital.masterdb.auth.password.PasswordConfig;
-import ca.nordencapital.masterdb.auth.session.SessionService;
-import ca.nordencapital.masterdb.auth.session.SessionService.IssuedSession;
+import ca.nordencapital.masterdb.auth.twofactor.TwoFactorService;
 import ca.nordencapital.masterdb.auth.user.Emails;
 import ca.nordencapital.masterdb.auth.user.User;
 import ca.nordencapital.masterdb.auth.user.UserRepository;
@@ -23,7 +22,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Checks an email and password and, when they are right, starts a session.
+ * Checks an email and password and, when they are right, opens the 2FA step
+ * (TwoFactorService). The session starts only after the code.
  *
  * <p><b>No user enumeration.</b> An unknown email, a wrong password, and an
  * invited or disabled account all end in the same {@link LoginResult.InvalidCredentials}.
@@ -46,18 +46,18 @@ public class LoginService {
 
     private final UserRepository users;
     private final PasswordEncoder passwordEncoder;
-    private final SessionService sessions;
+    private final TwoFactorService twoFactor;
     private final AuthProperties.Lockout lockout;
     private final Clock clock;
     private final UnknownAccountAttempts unknownAccounts;
     /** A real BCrypt hash of a random value, so "no account" costs the same as "wrong password". */
     private final String dummyHash;
 
-    public LoginService(UserRepository users, PasswordEncoder passwordEncoder, SessionService sessions,
+    public LoginService(UserRepository users, PasswordEncoder passwordEncoder, TwoFactorService twoFactor,
             AuthProperties properties, Clock clock) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
-        this.sessions = sessions;
+        this.twoFactor = twoFactor;
         this.lockout = properties.lockout();
         this.clock = clock;
         this.unknownAccounts = new UnknownAccountAttempts(lockout.maxAttempts(), lockout.duration());
@@ -89,16 +89,18 @@ public class LoginService {
 
         boolean passwordRight = matches(password, user.getPasswordHash());
         if (passwordRight && user.getStatus() == UserStatus.ACTIVE) {
-            user.setFailedLoginAttempts(0);
-            user.setLastLoginAt(now);
             if (passwordEncoder.upgradeEncoding(user.getPasswordHash())) {
                 user.setPasswordHash(passwordEncoder.encode(password));
             }
-            IssuedSession session = sessions.start(user, ip, userAgent);
-            log.info("login succeeded: {} user={} session={} ip={} requestId={}", masked, user.getPublicId(),
-                    session.publicId(), ip, requestId());
-            // M1.3: return SecondFactorRequired here instead, and start the session after the code.
-            return new LoginResult.Authenticated(user, session);
+            // The failure count is NOT reset here: only a full sign-in (code
+            // included) resets it, so the password alone cannot buy unlimited
+            // code guesses.
+            TwoFactorService.Started challenge = twoFactor.start(user, ip, userAgent);
+            log.info("password ok, 2fa {}: {} user={} ip={} requestId={}",
+                    challenge.purpose() == ca.nordencapital.masterdb.auth.twofactor.LoginChallenge.Purpose.SETUP
+                            ? "setup required" : "required",
+                    masked, user.getPublicId(), ip, requestId());
+            return new LoginResult.SecondFactorRequired(challenge);
         }
 
         int failures = user.getFailedLoginAttempts() + 1;

@@ -1,7 +1,6 @@
 package ca.nordencapital.masterdb.auth.login;
 
-import ca.nordencapital.masterdb.auth.session.SessionService.IssuedSession;
-import ca.nordencapital.masterdb.auth.user.User;
+import ca.nordencapital.masterdb.auth.twofactor.TwoFactorService.Started;
 
 import java.time.Instant;
 
@@ -10,17 +9,13 @@ import java.time.Instant;
  * so that a failed attempt's bookkeeping (failure count, lock) is committed
  * rather than rolled back with an exception.
  *
- * <p><b>Where 2FA goes (M1.3):</b> add a {@code SecondFactorRequired(challenge)}
- * state. {@link LoginService} returns it instead of {@link Authenticated} when
- * the password is right, without starting a session; a second endpoint
- * ({@code POST /api/v1/auth/login/2fa}) takes the challenge and the code and
- * only then starts the session. The controller maps the new state to its own
- * response; nothing else here changes.
+ * <p>A right password never signs in by itself (M1.3): it opens a 2FA
+ * challenge, and TwoFactorService starts the session after the code.
  */
 public sealed interface LoginResult {
 
-    /** Password right, account active: a session was started. */
-    record Authenticated(User user, IssuedSession session) implements LoginResult {
+    /** Password right, account active: a 2FA challenge was opened (VERIFY or SETUP). */
+    record SecondFactorRequired(Started challenge) implements LoginResult {
     }
 
     /** Unknown email, wrong password, or an account that cannot sign in. Deliberately one case. */
