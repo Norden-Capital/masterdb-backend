@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # One-time preparation of a fresh Ubuntu 24.04 VPS for the MasterDB backend.
 #
-# Run as root on the server:
-#     bash vps-setup.sh "<ci public key>" [api domain]
+# Upload the whole deploy/ folder (this script installs deploy/backup/ too) and
+# run as root on the server:
+#     bash deploy/vps-setup.sh "<ci public key>" [api domain]
 # e.g.
-#     bash vps-setup.sh "ssh-ed25519 AAAA... ci" db-api.nordencapital.ca
+#     bash deploy/vps-setup.sh "ssh-ed25519 AAAA... ci" db-api.nordencapital.ca
 #
 # The domain can also come from the API_DOMAIN environment variable. With a
 # domain, Caddy serves the API over HTTPS on it (the A record must already point
@@ -31,7 +32,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 # Keep existing config files if a package ships a new version (no prompt).
 apt-get -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade -y
-apt-get install -y ca-certificates curl gnupg ufw fail2ban unattended-upgrades \
+apt-get install -y ca-certificates curl gnupg python3 ufw fail2ban unattended-upgrades \
   debian-keyring debian-archive-keyring apt-transport-https
 
 # Security patches install themselves. A box nobody logs into for weeks is
@@ -165,6 +166,28 @@ fi
 # just because the page cache wants room.
 echo 'vm.swappiness=10' > /etc/sysctl.d/99-masterdb.conf
 sysctl -p /etc/sysctl.d/99-masterdb.conf
+
+echo "==> Nightly database backup + weekly restore test"
+# The scripts and units live next to this file in deploy/backup/ (one copy, the
+# one in git, instead of a second copy pasted in here that could drift). Upload
+# the whole deploy/ folder, not just this script. Nothing runs yet on a fresh
+# server: the timers just fail harmlessly until the first deploy has started
+# the masterdb-postgres container.
+BACKUP_SRC="$(cd "$(dirname "$0")" && pwd)/backup"
+for f in masterdb-backup.sh masterdb-restore-test.sh masterdb-backup-status.py masterdb-backup.service masterdb-backup.timer \
+         masterdb-restore-test.service masterdb-restore-test.timer; do
+  [ -f "$BACKUP_SRC/$f" ] || { echo "Missing $BACKUP_SRC/$f: upload the whole deploy/ folder."; exit 1; }
+done
+install -m 0755 -o root -g root "$BACKUP_SRC/masterdb-backup.sh" /usr/local/sbin/masterdb-backup
+install -m 0755 -o root -g root "$BACKUP_SRC/masterdb-restore-test.sh" /usr/local/sbin/masterdb-restore-test
+# Writes /var/backups/masterdb/status.json after every run (needs python3, part of Ubuntu).
+install -m 0755 -o root -g root "$BACKUP_SRC/masterdb-backup-status.py" /usr/local/sbin/masterdb-backup-status
+for u in masterdb-backup.service masterdb-backup.timer masterdb-restore-test.service masterdb-restore-test.timer; do
+  install -m 0644 -o root -g root "$BACKUP_SRC/$u" "/etc/systemd/system/$u"
+done
+install -d -m 700 -o root -g root /var/backups/masterdb
+systemctl daemon-reload
+systemctl enable --now masterdb-backup.timer masterdb-restore-test.timer
 
 echo "==> Firewall"
 # NOTE: Docker writes its own iptables rules, so a port published in

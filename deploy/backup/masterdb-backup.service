@@ -1,0 +1,15 @@
+# Installed as /etc/systemd/system/masterdb-backup.service (see deploy/vps-setup.sh).
+# Started by masterdb-backup.timer; by hand: systemctl start masterdb-backup
+[Unit]
+Description=MasterDB nightly Postgres backup
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/masterdb-backup
+# Low priority, so a busy night of imports keeps the CPU and disk.
+Nice=10
+IOSchedulingClass=idle
+# Never hang forever; a dump of millions of rows still takes minutes, not hours.
+TimeoutStartSec=4h

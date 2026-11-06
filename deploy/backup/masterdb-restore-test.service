@@ -1,0 +1,13 @@
+# Installed as /etc/systemd/system/masterdb-restore-test.service.
+# Started by masterdb-restore-test.timer; by hand: masterdb-restore-test
+[Unit]
+Description=MasterDB weekly restore test of the newest backup
+Wants=docker.service
+After=docker.service masterdb-backup.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/masterdb-restore-test
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=4h

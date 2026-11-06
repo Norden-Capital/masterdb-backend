@@ -1,0 +1,13 @@
+# Installed as /etc/systemd/system/masterdb-restore-test.timer.
+# Check: systemctl list-timers masterdb-restore-test.timer
+[Unit]
+Description=Prove every week that the newest MasterDB backup restores
+
+[Timer]
+# After Sunday's 03:15 backup (server time).
+OnCalendar=Sun *-*-* 04:00:00
+RandomizedDelaySec=5m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

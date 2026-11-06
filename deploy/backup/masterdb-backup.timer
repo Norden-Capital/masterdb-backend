@@ -1,0 +1,14 @@
+# Installed as /etc/systemd/system/masterdb-backup.timer.
+# Check: systemctl list-timers masterdb-backup.timer
+[Unit]
+Description=Run the MasterDB Postgres backup every night
+
+[Timer]
+# Server time (Europe/Berlin on the MasterDB VPS).
+OnCalendar=*-*-* 03:15:00
+RandomizedDelaySec=10m
+# If the server was off at 03:15, run as soon as it is back.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
