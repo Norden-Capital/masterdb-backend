@@ -31,3 +31,19 @@ management:
     web:
       exposure:
         include: health
+
+# API docs. Swagger UI is served by DocsController at /api/docs (no redirect);
+# the OpenAPI JSON lives under /api like every other app endpoint. Public for
+# now; set APP_DOCS_ENABLED=false to switch both off once auth exists.
+app:
+  docs:
+    enabled: ${APP_DOCS_ENABLED:true}
+
+springdoc:
+  api-docs:
+    path: /api/v3/api-docs
+    enabled: ${app.docs.enabled}
+  swagger-ui:
+    enabled: ${app.docs.enabled}
+  # Document only the app's own endpoints, not actuator.
+  paths-to-match: /api/**
