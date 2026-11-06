@@ -82,6 +82,10 @@ public class SecurityConfig {
                         // md_preauth cookie (a login challenge), checked by TwoFactorService.
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/login/2fa",
                                 "/api/v1/auth/2fa/setup", "/api/v1/auth/2fa/setup/confirm").permitAll()
+                        // Emailed links: the token in the body is the proof.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/invites/check", "/api/v1/invites/accept",
+                                "/api/v1/auth/password/forgot", "/api/v1/auth/password/reset/check",
+                                "/api/v1/auth/password/reset").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/status").permitAll()
                         // Answer 404 unless docs are on (DocsDisabledConfig runs before this chain).
                         .requestMatchers("/api/docs", "/api/v3/api-docs", "/api/v3/api-docs/**",

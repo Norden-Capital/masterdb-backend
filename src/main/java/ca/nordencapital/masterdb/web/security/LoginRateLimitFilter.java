@@ -48,7 +48,12 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
     static final java.util.Map<String, String> BUCKETS = java.util.Map.of(
             LOGIN_PATH, "login",
             "/api/v1/auth/login/2fa", "code",
-            "/api/v1/auth/2fa/setup/confirm", "code");
+            "/api/v1/auth/2fa/setup/confirm", "code",
+            "/api/v1/invites/check", "link",
+            "/api/v1/invites/accept", "link",
+            "/api/v1/auth/password/forgot", "link",
+            "/api/v1/auth/password/reset/check", "link",
+            "/api/v1/auth/password/reset", "link");
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {

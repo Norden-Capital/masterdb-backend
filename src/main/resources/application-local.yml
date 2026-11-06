@@ -25,3 +25,9 @@ app:
   # are then lost at restart). Set ENCRYPTION_KEY to keep them.
   encryption:
     required: false
+
+  # Links in emails point at `next dev`, and are printed in full in the log
+  # (no email is sent locally).
+  frontend-url: http://localhost:3000
+  mail:
+    log-links: true

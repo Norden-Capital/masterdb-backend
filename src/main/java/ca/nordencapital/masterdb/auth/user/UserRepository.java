@@ -2,6 +2,7 @@ package ca.nordencapital.masterdb.auth.user;
 
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -9,7 +10,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.Optional;
 import java.util.UUID;
 
-public interface UserRepository extends JpaRepository<User, Long> {
+public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificationExecutor<User> {
 
     /** Any case and surrounding spaces; matches the lower(email) unique index, so it uses it. */
     @Query("select u from User u where lower(u.email) = lower(trim(:email))")
@@ -25,6 +26,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmailForUpdate(@Param("email") String email);
 
     Optional<User> findByPublicId(UUID publicId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.publicId = :publicId")
+    Optional<User> findByPublicIdForUpdate(@Param("publicId") UUID publicId);
 
     boolean existsByOwnerTrue();
 }

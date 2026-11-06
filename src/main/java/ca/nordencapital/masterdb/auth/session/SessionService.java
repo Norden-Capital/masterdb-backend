@@ -88,6 +88,42 @@ public class SessionService {
         sessions.revoke(sessionId, clock.instant());
     }
 
+    /** A session as the sessions pages show it. {@code current}: the one making this request. */
+    public record SessionView(UUID publicId, Instant createdAt, Instant lastSeenAt, Instant expiresAt, String ip,
+            String userAgent, boolean current) {
+    }
+
+    /** The user's usable sessions, most recently used first. */
+    @Transactional(readOnly = true)
+    public java.util.List<SessionView> open(Long userId, Long currentSessionId) {
+        Instant now = clock.instant();
+        return sessions.findOpen(userId, now).stream()
+                .filter(s -> s.isUsable(now, settings.idleTimeout()))
+                .map(s -> new SessionView(s.getPublicId(), s.getCreatedAt(), s.getLastSeenAt(), s.getExpiresAt(),
+                        s.getIp(), s.getUserAgent(), s.getId().equals(currentSessionId)))
+                .toList();
+    }
+
+    /** Ends one of the user's sessions by its public id. False if the user has no such session. */
+    @Transactional
+    public boolean revoke(Long userId, UUID sessionPublicId) {
+        return sessions.findByUserAndPublicId(userId, sessionPublicId)
+                .map(s -> sessions.revoke(s.getId(), clock.instant()) >= 0)
+                .orElse(false);
+    }
+
+    /** Ends every session of the user ("log out everywhere", disable, password reset). */
+    @Transactional
+    public int revokeAll(Long userId) {
+        return sessions.revokeAllForUser(userId, clock.instant());
+    }
+
+    /** Ends every session of the user except {@code keepSessionId} (password change, "other devices"). */
+    @Transactional
+    public int revokeOthers(Long userId, Long keepSessionId) {
+        return sessions.revokeAllExcept(userId, keepSessionId, clock.instant());
+    }
+
     /** How long the cookie should live: the session's absolute limit. */
     public Duration cookieMaxAge() {
         return settings.absoluteTimeout();

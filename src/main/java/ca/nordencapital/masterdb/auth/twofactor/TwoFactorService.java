@@ -218,6 +218,12 @@ public class TwoFactorService {
         challenges.consumeAllForUser(user.getId(), clock.instant());
     }
 
+    /** Ends any sign-in half-way through (disable, password change or reset). */
+    @Transactional
+    public void endChallenges(User user) {
+        challenges.consumeAllForUser(user.getId(), clock.instant());
+    }
+
     public long remainingRecoveryCodes(User user) {
         return recoveryCodes.countByUserIdAndUsedAtIsNull(user.getId());
     }

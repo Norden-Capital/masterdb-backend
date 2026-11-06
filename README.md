@@ -54,6 +54,7 @@ Running the jar some other way (IDE, `java -jar`): add the profile
 | `APP_CORS_ALLOWED_ORIGINS` | `https://db.nordencapital.ca` (the `local` profile adds `http://localhost:3000`) |
 | `BOOTSTRAP_OWNER_EMAIL`, `BOOTSTRAP_OWNER_PASSWORD`, `BOOTSTRAP_OWNER_NAME` | none, optional: the first account (see "Users & owner bootstrap"). Unset = no account and a warning |
 | `ENCRYPTION_KEY` | none: **required in production** (64 hex characters; encrypts 2FA secrets; the app refuses to start without it). In the `local` profile, unset = a random key per run. **Never change it once set** |
+| `APP_FRONTEND_URL` | `https://db.nordencapital.ca` (`local`: `http://localhost:3000`): the website, for links in emails |
 | `APP_AUTH_SESSION_IDLE_TIMEOUT`, `APP_AUTH_SESSION_ABSOLUTE_TIMEOUT` | `12h`, `7d` (see "Authentication") |
 | `APP_AUTH_LOCKOUT_MAX_ATTEMPTS`, `APP_AUTH_LOCKOUT_DURATION` | `5`, `15m` |
 | `APP_AUTH_RATE_LIMIT_PER_MINUTE`, `APP_AUTH_RATE_LIMIT_PER_HOUR` | `10`, `50` login attempts per client address |
@@ -201,6 +202,32 @@ Per-user grants on **module × action**, a permission is written `MODULE:ACTION`
   the user cannot do. `GET /api/v1/permissions/catalogue` lists modules, actions and the
   presets **Viewer / Operator / Admin** (they only fill the editor; nothing links a user
   to a template).
+
+#### Users, invitations, my account (M1.5)
+
+| Call | Permission | What |
+| --- | --- | --- |
+| `GET /api/v1/users?q=&status=&page=&size=&sort=` | USERS:VIEW | search email/name, filter ACTIVE/INVITED/DISABLED, sort email, fullName, status, createdAt, lastLoginAt |
+| `GET /api/v1/users/{id}` | USERS:VIEW | + effective permissions, recovery codes left, open sessions |
+| `POST /api/v1/users/invites` `{email, fullName?, permissions[]}` | USERS:CREATE | 201; emails a link valid **72 h, once**; 409 if the email exists |
+| `POST /api/v1/users/{id}/invite/resend` | USERS:CREATE | new link, the old one stops working |
+| `DELETE /api/v1/users/{id}/invite` | USERS:DELETE | removes the never-used account |
+| `POST /api/v1/users/{id}/disable` · `/enable` | USERS:EDIT | disable ends all their sessions |
+| `POST /api/v1/users/{id}/2fa/reset` | USERS:EDIT | enrol again at next sign-in; sessions end |
+| `PUT /api/v1/users/{id}/permissions` `{permissions[]}` | USERS:EDIT | replaces the grants |
+| `GET /api/v1/users/{id}/sessions` · `DELETE .../sessions/{sid}` · `DELETE .../sessions` | USERS:VIEW / EDIT | list, end one, end all |
+| `POST /api/v1/invites/check` `{token}` · `/accept` `{token, fullName, password}` | none (the token) | 410 `LINK_INVALID` for any unusable link; accept continues with `TWO_FACTOR_SETUP_REQUIRED` + `md_preauth` |
+| `POST /api/v1/account/password` `{currentPassword, newPassword}` | signed in | 400 `CURRENT_PASSWORD_INCORRECT` (counts towards the lock); success ends every other session |
+| `GET /api/v1/account/sessions` · `DELETE /api/v1/account/sessions/{sid}` · `POST /api/v1/account/sessions/revoke-others` · `POST /api/v1/account/logout-everywhere` | signed in | own sessions (`current` marks this one) |
+| `GET /api/v1/account/2fa` · `POST /api/v1/account/2fa/recovery-codes` `{code}` | signed in | status; new codes after a current code |
+
+Rules no permission lifts: **the Owner is never the target** of an admin action (403);
+**nobody acts on their own account** through `/users` (409); **a non-owner can only grant or
+remove permissions they hold** (403). Passwords: at least 12 characters, at most 72 bytes,
+not the email (`auth/password/PasswordPolicy`). Email links carry the token after `#`
+(`/accept-invite#...`, `/reset-password#...`), never in a query string; table
+`account_tokens` (`V5__account_tokens.sql`) keeps only its SHA-256. Invitation, accept and
+reset calls share a per-address rate limit (`link` bucket, 10/min, 50/h).
 
 #### Login failures
 

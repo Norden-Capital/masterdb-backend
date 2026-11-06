@@ -101,6 +101,8 @@ app:
       # Wrong passwords in a row before the account is locked, and for how long.
       max-attempts: ${APP_AUTH_LOCKOUT_MAX_ATTEMPTS:5}
       duration: ${APP_AUTH_LOCKOUT_DURATION:15m}
+    # Invitation links work once and expire after this long.
+    invite-ttl: 72h
     two-factor:
       # Name shown in the authenticator app.
       issuer: MasterDB
@@ -112,6 +114,14 @@ app:
       # website), counted separately.
       per-minute: ${APP_AUTH_RATE_LIMIT_PER_MINUTE:10}
       per-hour: ${APP_AUTH_RATE_LIMIT_PER_HOUR:50}
+
+  # The website, for links in emails (invite, password reset).
+  frontend-url: ${APP_FRONTEND_URL:https://db.nordencapital.ca}
+
+  # Emails (mail/). Without a provider they are only logged, with the link's
+  # token masked; `log-links: true` (local profile only) prints the full link.
+  mail:
+    log-links: false
 
   # Encrypts 2FA secrets at rest (crypto/SecretCipher): 64 hex characters, a
   # GitHub secret written to the server's .env. FAIL CLOSED like the proxy
