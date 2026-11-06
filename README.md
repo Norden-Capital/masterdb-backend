@@ -178,6 +178,30 @@ unknown routes answer 401 to signed-out callers.
 - **`ENCRYPTION_KEY` must never change** once 2FA is in use: every enrolled authenticator
   would stop working (then reset everyone's 2FA, M1.5).
 
+#### Permissions (M1.4)
+
+Per-user grants on **module × action**, a permission is written `MODULE:ACTION`
+(`CONTACTS:EXPORT`). Table `user_permissions` (`V4__user_permissions.sql`).
+
+| Module | Actions |
+| --- | --- |
+| `CONTACTS`, `SEGMENTS`, `SUPPRESSION` | VIEW, CREATE, EDIT, DELETE, EXPORT |
+| `VALIDATION` | VIEW, RUN, EXPORT, DELETE |
+| `VALIDATION_SERVERS` | VIEW, CREATE, EDIT, DELETE, RUN |
+| `USERS` | VIEW, CREATE, EDIT, DELETE |
+| `ACTIVITY_LOG` | VIEW, EXPORT |
+| `BACKUPS` | VIEW, RUN, DELETE |
+| `SETTINGS` | VIEW, EDIT |
+
+- **The Owner holds every permission** and needs no rows.
+- Any action on a module implies its VIEW (saved with it).
+- Controllers declare `@RequiresPermission(module = ..., action = ...)`; without it the
+  answer is 403 `FORBIDDEN` (signed out stays 401). Changes apply on the next request.
+- `GET /api/v1/auth/me` returns `permissions` (effective, sorted) so the UI can hide what
+  the user cannot do. `GET /api/v1/permissions/catalogue` lists modules, actions and the
+  presets **Viewer / Operator / Admin** (they only fill the editor; nothing links a user
+  to a template).
+
 #### Login failures
 
 | Situation | Answer |

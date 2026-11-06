@@ -1,6 +1,7 @@
 package ca.nordencapital.masterdb.auth.session;
 
 import ca.nordencapital.masterdb.auth.AuthProperties;
+import ca.nordencapital.masterdb.auth.permission.PermissionService;
 import ca.nordencapital.masterdb.auth.user.User;
 import ca.nordencapital.masterdb.auth.user.UserStatus;
 import org.springframework.stereotype.Service;
@@ -30,11 +31,14 @@ public class SessionService {
     static final int IP_MAX = 45;
 
     private final UserSessionRepository sessions;
+    private final PermissionService permissions;
     private final AuthProperties.Session settings;
     private final Clock clock;
 
-    public SessionService(UserSessionRepository sessions, AuthProperties properties, Clock clock) {
+    public SessionService(UserSessionRepository sessions, PermissionService permissions, AuthProperties properties,
+            Clock clock) {
         this.sessions = sessions;
+        this.permissions = permissions;
         this.settings = properties.session();
         this.clock = clock;
     }
@@ -75,7 +79,7 @@ public class SessionService {
             sessions.touch(session.getId(), now);
         }
         return Optional.of(new AuthPrincipal(user.getId(), user.getPublicId(), user.getEmail(), user.getFullName(),
-                user.isOwner(), session.getId(), session.getPublicId()));
+                user.isOwner(), session.getId(), session.getPublicId(), permissions.effective(user)));
     }
 
     /** Ends one session. Ending an ended session changes nothing. */

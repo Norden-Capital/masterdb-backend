@@ -7,7 +7,6 @@ import ca.nordencapital.masterdb.auth.twofactor.LoginChallenge;
 import ca.nordencapital.masterdb.auth.twofactor.TwoFactorService;
 import ca.nordencapital.masterdb.auth.twofactor.TwoFactorService.CodeResult;
 import ca.nordencapital.masterdb.auth.user.Emails;
-import ca.nordencapital.masterdb.auth.user.User;
 import ca.nordencapital.masterdb.web.request.RequestIdFilter;
 import ca.nordencapital.masterdb.web.security.ClientIp;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -177,10 +176,12 @@ public class AuthController {
         }
     }
 
-    /** What the frontend needs about the signed-in user. Permissions join in M1.4. */
-    public record UserSummary(UUID publicId, String email, String fullName, boolean isOwner) {
-        static UserSummary of(User user) {
-            return new UserSummary(user.getPublicId(), user.getEmail(), user.getFullName(), user.isOwner());
-        }
+    /**
+     * What the frontend needs about the signed-in user. {@code permissions} are
+     * the effective ones ({@code MODULE:ACTION}; every one for the Owner), so the
+     * UI can hide what the user cannot do. The API checks again regardless.
+     */
+    public record UserSummary(UUID publicId, String email, String fullName, boolean isOwner,
+            List<String> permissions) {
     }
 }
