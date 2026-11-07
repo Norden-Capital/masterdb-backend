@@ -42,7 +42,8 @@ public final class FakeSmtpServer implements AutoCloseable {
     private volatile String greeting = "220 mx.fake ESMTP";
     private volatile String mailFrom = "250 2.1.0 Ok";
     private volatile String others = "550 5.1.1 <x>: Recipient address rejected: User unknown";
-    private volatile int connections;
+    private final java.util.concurrent.atomic.AtomicInteger connections = new java.util.concurrent.atomic.AtomicInteger();
+    private volatile long delayMs;
 
     public FakeSmtpServer() {
         try {
@@ -74,6 +75,12 @@ public final class FakeSmtpServer implements AutoCloseable {
         return this;
     }
 
+    /** Waits this long before the greeting (a slow mail server: keeps a job busy). */
+    public FakeSmtpServer delay(long ms) {
+        this.delayMs = ms;
+        return this;
+    }
+
     public FakeSmtpServer mailFrom(String reply) {
         this.mailFrom = reply;
         return this;
@@ -84,13 +91,14 @@ public final class FakeSmtpServer implements AutoCloseable {
     }
 
     public int connections() {
-        return connections;
+        return connections.get();
     }
 
     public void reset() {
         recipients.clear();
         commands.clear();
-        connections = 0;
+        connections.set(0);
+        delayMs = 0;
         greeting = "220 mx.fake ESMTP";
         mailFrom = "250 2.1.0 Ok";
         others = "550 5.1.1 <x>: Recipient address rejected: User unknown";
@@ -105,7 +113,7 @@ public final class FakeSmtpServer implements AutoCloseable {
         while (!socket.isClosed()) {
             try {
                 Socket s = socket.accept();
-                connections++;
+                connections.incrementAndGet();
                 Thread t = new Thread(() -> serve(s), "fake-smtp-conn");
                 t.setDaemon(true);
                 t.start();
@@ -119,6 +127,14 @@ public final class FakeSmtpServer implements AutoCloseable {
         try (s) {
             BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.US_ASCII));
             OutputStream out = s.getOutputStream();
+            if (delayMs > 0) {
+                try {
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
             if (!send(out, greeting) || !greeting.startsWith("220")) {
                 return;
             }

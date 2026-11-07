@@ -411,6 +411,32 @@ restart). A check during a pause is not made: it is UNKNOWN with the time it end
 | `POST /api/v1/validation/checks` `{email, serverId}` → category, reason, the provider's reply, MX, SMTP transcript | VALIDATION:RUN |
 | `GET /api/v1/validation/checks` (`q`, `category`, sort createdAt/email/category/serverName) / `GET …/{id}` | VALIDATION:VIEW |
 
+**Pacing settings**: `GET /api/v1/validation/pacing` (VALIDATION:VIEW) lists each provider's numbers and
+every pause running now (server, provider, until, the answer that caused it); `PUT …/pacing/{GOOGLE|MICROSOFT|YAHOO|OTHER}`
+`{gapMs, globalGapMs, rateCooldownS, blockCooldownS, maxCooldownS}` changes them (SETTINGS:EDIT, activity
+`VALIDATION_PACING_CHANGED`).
+
+**Bulk jobs (job 2, `validation/bulk/`, V18).** A job checks a pasted set of addresses (one per line; a CSV
+row's first field with an `@`; duplicates and malformed lines are dropped and counted; at most 50,000) through
+1 to 10 servers, in the background (`BulkRunner`): one worker per server, each with its own SSH connection,
+taking the next address still to check (`for update skip locked`), so the work rotates between the servers.
+A provider paused for one server is skipped by that server and taken by the others; with nothing else to do
+a worker waits and says why. A "slow down" answer puts the address back (up to 3 tries) instead of saving it
+as unknown. Each result is saved with the job's counters in one transaction; `pending` + the six categories
+always equal `total` (check constraint). Stop keeps the results; Resume goes on with the rest; **Retry
+unknown** moves the unknown addresses back to pending **in the same job** (never counted twice). A backend
+restart frees the claims of the old workers and resumes every RUNNING job. A server that can't be reached
+3 times in a row drops out; with no server left the job is STOPPED with the reason.
+
+| Call | Permission |
+| --- | --- |
+| `POST /api/v1/validation/jobs` `{name?, emails, serverIds}` → 201 | VALIDATION:RUN |
+| `GET /api/v1/validation/jobs?status=` / `GET …/{id}` (counters, servers with checked / state / message, checks per minute) | VALIDATION:VIEW |
+| `POST …/{id}/stop`, `…/resume` `{serverIds?}`, `…/retry-unknown` `{serverIds?}` | VALIDATION:RUN |
+| `DELETE …/{id}` (not while running) | VALIDATION:DELETE |
+
+Activity: `VALIDATION_JOB_STARTED`, `_STOPPED`, `_RESUMED`, `_RETRIED`, `_FINISHED`, `_DELETED`.
+
 Single checks are kept 90 days (`app.validation.check-retention`, pruned daily 03:50 UTC).
 Errors: 400 for a malformed address, 409 `SERVER_NOT_READY`, 424 `SSH_FAILED`. Tests use
 `testsupport/FakeSmtpServer` (127.0.0.1) reached through the fake SSH server: no test talks to a

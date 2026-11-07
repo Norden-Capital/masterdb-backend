@@ -132,18 +132,32 @@ public class Pacing {
     }
 
     /** Every pause that is still running, for the pages. */
-    public record Cooldown(long serverId, String provider, String label, int failures, Instant until, String reason) {
+    public record CooldownView(String serverName, String serverIp, String provider, String label, int failures,
+            Instant until, String reason) {
     }
 
-    public List<Cooldown> active() {
-        List<Cooldown> out = new ArrayList<>();
-        jdbc.query("select * from validation_cooldowns where cooldown_until > ? order by cooldown_until desc",
-                rs -> {
-                    out.add(new Cooldown(rs.getLong("server_id"), rs.getString("provider"),
+    public List<CooldownView> active() {
+        List<CooldownView> out = new ArrayList<>();
+        jdbc.query("select c.*, s.name, s.ip from validation_cooldowns c join servers s on s.id = c.server_id "
+                + "where c.cooldown_until > ? order by c.cooldown_until desc", rs -> {
+                    out.add(new CooldownView(rs.getString("name"), rs.getString("ip"), rs.getString("provider"),
                             label(rs.getString("provider")), rs.getInt("failures"),
                             rs.getTimestamp("cooldown_until").toInstant(), rs.getString("reason")));
                 }, Timestamp.from(clock.instant()));
         return out;
+    }
+
+    /** Changes one provider's numbers (gaps in ms, pauses in seconds). */
+    public Provider update(String key, int gapMs, int globalGapMs, int rateCooldownS, int blockCooldownS,
+            int maxCooldownS) {
+        int n = jdbc.update("update validation_providers set gap_ms = ?, global_gap_ms = ?, rate_cooldown_s = ?, "
+                + "block_cooldown_s = ?, max_cooldown_s = ?, updated_at = ? where key = ?", gapMs, globalGapMs,
+                rateCooldownS, blockCooldownS, maxCooldownS, Timestamp.from(clock.instant()), key);
+        if (n == 0) {
+            throw new ca.nordencapital.masterdb.web.error.NotFoundException("No provider " + key + ".");
+        }
+        reload();
+        return rules(key);
     }
 
     /** After a check: a pause after "slow down" / "blocked", one step back after a normal answer. */

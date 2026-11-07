@@ -57,6 +57,8 @@ abstract class ValidationFlowTestBase extends ServerFlowTestBase {
     }
 
     void cleanValidation() {
+        jdbc.update("update validation_jobs set status = 'STOPPED'");
+        jdbc.update("delete from validation_jobs");
         jdbc.update("delete from validation_checks");
         jdbc.update("delete from validation_cooldowns");
     }

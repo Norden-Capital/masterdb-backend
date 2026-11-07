@@ -11,7 +11,15 @@ import ca.nordencapital.masterdb.web.paging.PageParams;
 import ca.nordencapital.masterdb.web.paging.PageResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import ca.nordencapital.masterdb.activity.ActivityAction;
+import ca.nordencapital.masterdb.activity.ActivityLog;
+import ca.nordencapital.masterdb.activity.ActivityLog.Party;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import org.springframework.web.bind.annotation.PutMapping;
+import java.util.Map;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -35,10 +43,45 @@ public class ValidationController {
 
     private final ValidationServers servers;
     private final SingleCheckService checks;
+    private final Pacing pacing;
+    private final ActivityLog activity;
 
-    public ValidationController(ValidationServers servers, SingleCheckService checks) {
+    public ValidationController(ValidationServers servers, SingleCheckService checks, Pacing pacing,
+            ActivityLog activity) {
         this.servers = servers;
         this.checks = checks;
+        this.pacing = pacing;
+        this.activity = activity;
+    }
+
+    public record PacingView(List<Pacing.Provider> providers, List<Pacing.CooldownView> paused) {
+    }
+
+    public record ProviderRequest(@NotNull @Min(0) @Max(600_000) Integer gapMs,
+            @NotNull @Min(0) @Max(600_000) Integer globalGapMs, @NotNull @Min(0) @Max(86_400) Integer rateCooldownS,
+            @NotNull @Min(0) @Max(86_400) Integer blockCooldownS, @NotNull @Min(0) @Max(86_400) Integer maxCooldownS) {
+    }
+
+    @Operation(summary = "Pacing per provider", description = "The waits and pauses per email provider (saved in "
+            + "the database), and every pause running now (server, provider, until when, the answer that caused it).")
+    @RequiresPermission(module = Module.VALIDATION, action = Action.VIEW)
+    @GetMapping("/pacing")
+    public PacingView pacing() {
+        return new PacingView(pacing.providers(), pacing.active());
+    }
+
+    @Operation(summary = "Change a provider's pacing", description = "GOOGLE, MICROSOFT, YAHOO or OTHER. Waits in "
+            + "milliseconds, pauses in seconds. Used from the next check on.")
+    @RequiresPermission(module = Module.SETTINGS, action = Action.EDIT)
+    @PutMapping("/pacing/{key}")
+    public Pacing.Provider updatePacing(@AuthenticationPrincipal AuthPrincipal caller, @PathVariable String key,
+            @Validated @RequestBody ProviderRequest body) {
+        Pacing.Provider p = pacing.update(key, body.gapMs(), body.globalGapMs(), body.rateCooldownS(),
+                body.blockCooldownS(), body.maxCooldownS());
+        activity.record(ActivityAction.VALIDATION_PACING_CHANGED, Party.of(caller), Party.label(p.label()),
+                Map.of("gapMs", p.gapMs(), "globalGapMs", p.globalGapMs(), "rateCooldownS", p.rateCooldownS(),
+                        "blockCooldownS", p.blockCooldownS(), "maxCooldownS", p.maxCooldownS()));
+        return p;
     }
 
     public record CheckRequest(@Size(max = 300) String email, UUID serverId) {

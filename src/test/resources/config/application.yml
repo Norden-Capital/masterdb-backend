@@ -23,3 +23,4 @@ app:
     allow-private-mx: true
     gap-scale: 0
     smtp-timeout: 3s
+    worker-idle: 100ms
