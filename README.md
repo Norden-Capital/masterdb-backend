@@ -188,6 +188,7 @@ Per-user grants on **module × action**, a permission is written `MODULE:ACTION`
 
 | Module | Actions |
 | --- | --- |
+| `DASHBOARD` | VIEW (added in M2, `V7__dashboard_permission.sql`: existing non-owner accounts got it) |
 | `CONTACTS`, `SEGMENTS`, `SUPPRESSION` | VIEW, CREATE, EDIT, DELETE, EXPORT |
 | `VALIDATION` | VIEW, RUN, EXPORT, DELETE |
 | `VALIDATION_SERVERS` | VIEW, CREATE, EDIT, DELETE, RUN |
@@ -204,6 +205,20 @@ Per-user grants on **module × action**, a permission is written `MODULE:ACTION`
   the user cannot do. `GET /api/v1/permissions/catalogue` lists modules, actions and the
   presets **Viewer / Operator / Admin** (they only fill the editor; nothing links a user
   to a template).
+
+#### Dashboard (M2.4)
+
+`GET /api/v1/dashboard/summary` (DASHBOARD:VIEW): counted from the database at the call,
+only numbers that exist today:
+
+```json
+{"generatedAt":"…","users":{"total":5,"active":2,"invited":2,"disabled":1},
+ "openSessions":2,"activity":{"last24Hours":7,"last7Days":8}}
+```
+
+Open sessions use the same rule as sign-in (not revoked, before the absolute end, seen within the
+idle limit, account ACTIVE). The last backup is **not** included: its `status.json` is in a
+root-only folder on the server, outside the container.
 
 #### Users, invitations, my account (M1.5)
 

@@ -32,6 +32,7 @@ public final class PermissionTemplates {
 
     private static SortedSet<Permission> viewer() {
         SortedSet<Permission> out = new TreeSet<>();
+        out.add(new Permission(Module.DASHBOARD, Action.VIEW));
         DATA.forEach(m -> out.add(new Permission(m, Action.VIEW)));
         out.add(new Permission(Module.VALIDATION_SERVERS, Action.VIEW));
         return out;
@@ -39,6 +40,7 @@ public final class PermissionTemplates {
 
     private static SortedSet<Permission> operator() {
         SortedSet<Permission> out = new TreeSet<>();
+        out.add(new Permission(Module.DASHBOARD, Action.VIEW));
         DATA.forEach(m -> m.actions().forEach(a -> out.add(new Permission(m, a))));
         out.add(new Permission(Module.VALIDATION_SERVERS, Action.VIEW));
         out.add(new Permission(Module.VALIDATION_SERVERS, Action.RUN));

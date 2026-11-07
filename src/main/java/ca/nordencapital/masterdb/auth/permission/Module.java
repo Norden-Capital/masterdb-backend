@@ -16,6 +16,7 @@ import static ca.nordencapital.masterdb.auth.permission.Action.VIEW;
  * add new ones, never rename.
  */
 public enum Module {
+    DASHBOARD("Dashboard", EnumSet.of(VIEW)),
     CONTACTS("Contacts", EnumSet.of(VIEW, CREATE, EDIT, DELETE, EXPORT)),
     VALIDATION("Validation", EnumSet.of(VIEW, RUN, EXPORT, DELETE)),
     VALIDATION_SERVERS("Validation servers", EnumSet.of(VIEW, CREATE, EDIT, DELETE, RUN)),

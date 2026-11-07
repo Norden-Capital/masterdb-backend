@@ -51,4 +51,12 @@ class PermissionTest {
         assertThat(viewer.permissions()).allMatch(p -> p.action() == Action.VIEW)
                 .noneMatch(p -> p.module() == Module.USERS);
     }
+
+    @Test
+    void theDashboardIsViewOnlyAndInEveryTemplate() {
+        assertThat(Module.DASHBOARD.actions()).containsExactly(Action.VIEW);
+        assertThat(Permission.parse("DASHBOARD:VIEW").module()).isEqualTo(Module.DASHBOARD);
+        PermissionTemplates.all().forEach(t ->
+                assertThat(t.permissions()).contains(Permission.parse("DASHBOARD:VIEW")));
+    }
 }
