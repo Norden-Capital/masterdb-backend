@@ -123,8 +123,8 @@ public class ServerService {
     public record ServerItem(UUID publicId, String name, String ip, int sshPort, String sshUser, LocalDate expiresOn,
             long daysLeft, String notes, LinkedDomain domain, ConnectionStatus connectionStatus,
             String connectionMessage, Instant connectionCheckedAt, KeyView hostKey, KeyView presentedKey,
-            String os, Boolean privileged, String healthStatus, Instant healthCheckedAt, Instant createdAt,
-            Instant updatedAt) {
+            String os, Boolean privileged, String healthStatus, Instant healthCheckedAt, String heloHost,
+            String mailFrom, Instant createdAt, Instant updatedAt) {
     }
 
     /** Internal: with database ids and the stored keys. */
@@ -159,7 +159,9 @@ public class ServerService {
                     ConnectionStatus.valueOf(rs.getString("connection_status")), rs.getString("connection_message"),
                     instant(rs.getTimestamp("connection_checked_at")), pinned, seen, rs.getString("os_name"),
                     (Boolean) rs.getObject("privileged"), rs.getString("health_status"),
-                    instant(rs.getTimestamp("health_checked_at")), instant(rs.getTimestamp("created_at")),
+                    instant(rs.getTimestamp("health_checked_at")),
+                    domainId == null ? null : rs.getString("helo_host"),
+                    domainId == null ? null : rs.getString("mail_from"), instant(rs.getTimestamp("created_at")),
                     instant(rs.getTimestamp("updated_at")));
             return new Server(rs.getLong("id"), (Long) rs.getObject("domain_id"), rs.getString("host_key"),
                     rs.getString("seen_key"), rs.getString("os_id"), rs.getString("os_version"), item);
@@ -249,8 +251,9 @@ public class ServerService {
         UUID id = UUID.randomUUID();
         try {
             jdbc.update("insert into servers (public_id, name, ip, ssh_port, ssh_user, expires_on, notes, domain_id, "
-                            + "created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", id, v.name, v.ip, v.port,
-                    v.user, Date.valueOf(v.expiresOn), v.notes, v.domainId, now, now);
+                            + "helo_host, mail_from, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    id, v.name, v.ip, v.port, v.user, Date.valueOf(v.expiresOn), v.notes, v.domainId,
+                    defaultHelo(v.domainName), defaultMailFrom(v.domainName), now, now);
         } catch (DuplicateKeyException e) {
             throw duplicate(e, v);
         }
@@ -268,9 +271,13 @@ public class ServerService {
         boolean userChanged = !before.item().sshUser().equals(v.user);
         Timestamp now = Timestamp.from(clock.instant());
         try {
+            // A new domain: the identity starts again from its defaults (same statement: the check constraint).
+            boolean newDomain = v.domainId != null && !java.util.Objects.equals(before.domainId(), v.domainId);
             jdbc.update("update servers set name = ?, ip = ?, ssh_port = ?, ssh_user = ?, expires_on = ?, notes = ?, "
-                            + "domain_id = ?, updated_at = ? where id = ?", v.name, v.ip, v.port, v.user,
-                    Date.valueOf(v.expiresOn), v.notes, v.domainId, now, before.id());
+                            + "domain_id = ?, helo_host = case when ? then ? else helo_host end, mail_from = case "
+                            + "when ? then ? else mail_from end, updated_at = ? where id = ?", v.name, v.ip, v.port,
+                    v.user, Date.valueOf(v.expiresOn), v.notes, v.domainId, newDomain, defaultHelo(v.domainName),
+                    newDomain, defaultMailFrom(v.domainName), now, before.id());
         } catch (DuplicateKeyException e) {
             throw duplicate(e, v);
         }
@@ -300,6 +307,59 @@ public class ServerService {
         activity.record(ActivityAction.SERVER_DELETED, Party.of(caller), party(s),
                 Map.of("ip", s.item().ip()));
         log.info("server deleted: {} by {}", s.item().publicId(), caller.userPublicId());
+    }
+
+    // ---- probe identity (job 3) ----------------------------------------------------
+
+    static final Pattern HOST = Pattern.compile("(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9-]{2,63}");
+    static final Pattern LOCAL = Pattern.compile("[a-z0-9](?:[a-z0-9._+-]{0,62}[a-z0-9])?");
+
+    /**
+     * HELO host and MAIL FROM that Validation will use from this server. Both
+     * must be on the linked domain (the domain itself or a subdomain), so the
+     * PTR, the greeting and the sender all match.
+     */
+    @Transactional
+    public ServerItem identity(AuthPrincipal caller, UUID publicId, String heloHost, String mailFrom) {
+        Server s = find(publicId);
+        if (s.item().domain() == null) {
+            throw new ServerNotReadyException("Link a domain to this server first: the HELO host and sender must "
+                    + "be on it.");
+        }
+        String domain = s.item().domain().name();
+        String helo = heloHost == null ? "" : heloHost.trim().toLowerCase(java.util.Locale.ROOT);
+        String from = mailFrom == null ? "" : mailFrom.trim().toLowerCase(java.util.Locale.ROOT);
+        List<FieldViolation> errors = new ArrayList<>();
+        if (helo.length() > 253 || !HOST.matcher(helo).matches() || !onDomain(helo, domain)) {
+            errors.add(new FieldViolation("heloHost", "must be " + domain + " or a host under it, like mail."
+                    + domain));
+        }
+        int at = from.lastIndexOf('@');
+        if (at < 1 || from.length() > 254 || !LOCAL.matcher(from.substring(0, at)).matches()
+                || !HOST.matcher(from.substring(at + 1)).matches() || !onDomain(from.substring(at + 1), domain)) {
+            errors.add(new FieldViolation("mailFrom", "must be an address at " + domain + " (or a subdomain), like "
+                    + "postmaster@" + domain));
+        }
+        if (!errors.isEmpty()) {
+            throw BadRequestException.validation(errors);
+        }
+        jdbc.update("update servers set helo_host = ?, mail_from = ?, updated_at = ? where id = ?", helo, from,
+                Timestamp.from(clock.instant()), s.id());
+        activity.record(ActivityAction.SERVER_IDENTITY_CHANGED, Party.of(caller), party(s),
+                Map.of("heloHost", helo, "mailFrom", from, "domain", domain));
+        return find(publicId).item();
+    }
+
+    static boolean onDomain(String host, String domain) {
+        return host.equals(domain) || host.endsWith("." + domain);
+    }
+
+    static String defaultHelo(String domain) {
+        return domain == null ? null : "mail." + domain;
+    }
+
+    static String defaultMailFrom(String domain) {
+        return domain == null ? null : "postmaster@" + domain;
     }
 
     // ---- connect and host keys -----------------------------------------------------
@@ -541,6 +601,10 @@ public class ServerService {
         d.put("sshUser", s.item().sshUser());
         d.put("expiresOn", s.item().expiresOn().toString());
         d.put("domain", s.item().domain() == null ? "" : s.item().domain().name());
+        if (s.item().heloHost() != null) {
+            d.put("heloHost", s.item().heloHost());
+            d.put("mailFrom", s.item().mailFrom());
+        }
         return d;
     }
 

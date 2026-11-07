@@ -105,29 +105,40 @@ public class DnsRecordService {
     }
 
     public DnsSettings settingsOf(long id) {
-        return jdbc.queryForObject("select mail_ip, dkim_selector, dkim_public_key, dmarc_policy, bimi_logo_url, "
-                + "bimi_certificate_url, dns_settings_updated_at from domains where id = ?", (rs, n) -> new DnsSettings(
-                rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6),
-                rs.getTimestamp(7) == null ? null : rs.getTimestamp(7).toInstant()), id);
+        // A linked server (Server management) gives the domain its mail IP.
+        return jdbc.queryForObject("select coalesce(s.ip, d.mail_ip), d.dkim_selector, d.dkim_public_key, "
+                + "d.dmarc_policy, d.bimi_logo_url, d.bimi_certificate_url, d.dns_settings_updated_at, s.public_id, "
+                + "s.name, s.ip from domains d left join servers s on s.domain_id = d.id where d.id = ?",
+                (rs, n) -> new DnsSettings(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4),
+                        rs.getString(5), rs.getString(6), rs.getTimestamp(7) == null ? null
+                        : rs.getTimestamp(7).toInstant(), rs.getObject(8) == null ? null
+                        : new DnsSettings.MailServer(rs.getObject(8, UUID.class), rs.getString(9), rs.getString(10))),
+                id);
     }
 
     @Transactional
     public DnsSettings saveSettings(AuthPrincipal caller, UUID domainId, DnsSettings input) {
         Domain d = domains.find(domainId);
         DnsSettings s = validate(input);
-        jdbc.update("update domains set mail_ip = ?, dkim_selector = ?, dkim_public_key = ?, dmarc_policy = ?, "
+        // With a linked server the IP comes from the server: a typed one is ignored (the stored one is kept).
+        jdbc.update("update domains set mail_ip = case when exists (select 1 from servers where domain_id = ?) "
+                        + "then mail_ip else ? end, dkim_selector = ?, dkim_public_key = ?, dmarc_policy = ?, "
                         + "bimi_logo_url = ?, bimi_certificate_url = ?, dns_settings_updated_at = ?, updated_at = ? "
-                        + "where id = ?", s.mailIp(), s.dkimSelector(), s.dkimPublicKey(), s.dmarcPolicy(),
+                        + "where id = ?", d.id(), s.mailIp(), s.dkimSelector(), s.dkimPublicKey(), s.dmarcPolicy(),
                 s.bimiLogoUrl(), s.bimiCertificateUrl(), Timestamp.from(clock.instant()),
                 Timestamp.from(clock.instant()), d.id());
+        DnsSettings saved = settingsOf(d.id());
         Map<String, Object> details = new LinkedHashMap<>();
-        details.put("mailIp", s.mailIp() == null ? "" : s.mailIp());
+        details.put("mailIp", saved.mailIp() == null ? "" : saved.mailIp());
+        if (saved.mailServer() != null) {
+            details.put("mailIpFrom", saved.mailServer().name());
+        }
         details.put("dkimSelector", s.dkimSelector());
         details.put("dkimKey", s.dkimPublicKey() != null);
         details.put("dmarcPolicy", s.dmarcPolicy());
         details.put("bimi", s.bimiLogoUrl() != null);
         activity.record(ActivityAction.DNS_SETTINGS_CHANGED, Party.of(caller), DomainService.party(d), details);
-        return settingsOf(d.id());
+        return saved;
     }
 
     static DnsSettings validate(DnsSettings in) {
@@ -323,7 +334,8 @@ public class DnsRecordService {
     private DnsSettings settingsForSetup(Domain d) {
         DnsSettings s = settingsOf(d.id());
         if (s.mailIp() == null) {
-            throw DnsWriteException.refused("Set the mail server IP under Managed records first.");
+            throw DnsWriteException.refused("Set the mail server IP under Managed records first, or link a server "
+                    + "to this domain (Server management).");
         }
         return s;
     }

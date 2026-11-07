@@ -236,9 +236,9 @@ public class ServerHealthService {
         return new CheckResult("PTR", Status.OK, "Reverse DNS of " + s.item().ip() + " is " + expected + ".", list);
     }
 
-    /** The host the PTR must show: the linked domain's mail host. */
+    /** The host the PTR must show: the server's HELO host on its linked domain. */
     static String expectedPtr(Server s) {
-        return s.item().domain() == null ? null : "mail." + s.item().domain().name();
+        return s.item().domain() == null ? null : s.item().heloHost();
     }
 
     CheckResult blocklists(Server s) {

@@ -1,26 +1,42 @@
 package ca.nordencapital.masterdb.dns.health;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
- * <b>Hook for PTR (reverse DNS).</b> When servers are linked to domains
- * (Server management), each validation server's IP must resolve back to its
- * domain's mail host (HELO / MAIL FROM, spec addition 3). That module
- * replaces this bean (or adds the lookup here) to return, for a domain, the
- * linked server's IP and the host name its PTR must show. Until then nothing
- * is linked, so the PTR row says "not checked". The check itself is already
- * in {@link HealthChecks#ptr}.
+ * PTR (reverse DNS) expectation of a domain: the server linked to it
+ * (Server management) must resolve back to its HELO host (spec addition 3).
+ * No linked server: the PTR row says "not checked".
  */
 @Component
 public class PtrExpectations {
+
+    private final JdbcTemplate jdbc;
+
+    @Autowired
+    public PtrExpectations(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+    }
+
+    /** Without a database: nothing is ever linked (unit tests of the checks). */
+    public PtrExpectations() {
+        this(null);
+    }
 
     /** IP whose PTR must equal {@code host}. */
     public record Expected(String ip, String host) {
     }
 
     public Optional<Expected> forDomain(long domainId, String domainName) {
-        return Optional.empty();
+        if (jdbc == null) {
+            return Optional.empty();
+        }
+        List<Expected> found = jdbc.query("select ip, coalesce(helo_host, 'mail.' || ?) from servers "
+                + "where domain_id = ?", (rs, n) -> new Expected(rs.getString(1), rs.getString(2)), domainName, domainId);
+        return found.stream().findFirst();
     }
 }

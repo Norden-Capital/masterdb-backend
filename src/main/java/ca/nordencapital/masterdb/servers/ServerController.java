@@ -62,6 +62,19 @@ public class ServerController {
     public record FingerprintRequest(@NotBlank @Size(max = 100) String fingerprint) {
     }
 
+    public record IdentityRequest(@Size(max = 300) String heloHost, @Size(max = 300) String mailFrom) {
+    }
+
+    @Operation(summary = "Set the probe identity", description = "HELO host and MAIL FROM that Validation will "
+            + "use from this server; both on the linked domain (the domain or a subdomain). Linking a domain sets "
+            + "them to mail.<domain> and postmaster@<domain>. 409 SERVER_NOT_READY without a linked domain.")
+    @RequiresPermission(module = Module.SERVERS, action = Action.EDIT)
+    @PutMapping("/{id}/identity")
+    public ServerItem identity(@AuthenticationPrincipal AuthPrincipal caller, @PathVariable UUID id,
+            @Validated @RequestBody IdentityRequest body) {
+        return service.identity(caller, id, body.heloHost(), body.mailFrom());
+    }
+
     @Operation(summary = "MasterDB's SSH public key", description = "The one ed25519 key MasterDB logs in with "
             + "(made on first call), its fingerprint and a one-line command that adds it to authorized_keys on a "
             + "VPS. The private key is never returned.")

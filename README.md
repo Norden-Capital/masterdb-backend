@@ -304,6 +304,23 @@ The list takes `health` (OK, WARNING, PROBLEM, ERROR, UNCHECKED) and sorts by `h
 server's own resolver. Spamhaus refuses public resolvers such as 1.1.1.1 and 8.8.8.8 (and
 may refuse a busy shared one): then the DNSBL row says so instead of guessing.
 
+**Domain link and probe identity (job 3, V14).** A server may be linked to one domain (one
+server per domain). While linked:
+- the domain's **mail IP is the server's IP**: `GET …/dns-settings` returns it as `mailIp` with
+  `mailServer {publicId, name, ip}`, a typed `mailIp` is ignored (and comes back when the
+  server is unlinked), and the managed records (A, SPF) and DNS health use it;
+- the DNS module's **PTR check is on** (`dns/health/PtrExpectations`): the server's IP must
+  resolve to its HELO host; server health checks the same;
+- the server has a **probe identity** for Validation: `heloHost` and `mailFrom`, set to
+  `mail.<domain>` and `postmaster@<domain>` when a domain is linked, editable, always on the
+  domain or a host under it.
+
+| Call | Permission |
+| --- | --- |
+| `PUT /api/v1/servers/{id}/identity` `{heloHost, mailFrom}` (400 off the domain, 409 `SERVER_NOT_READY` without a domain) | SERVERS:EDIT |
+
+Activity: `SERVER_IDENTITY_CHANGED`.
+
 #### Dashboard (M2.4)
 
 `GET /api/v1/dashboard/summary` (DASHBOARD:VIEW): counted from the database at the call,
