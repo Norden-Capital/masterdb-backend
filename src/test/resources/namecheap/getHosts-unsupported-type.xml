@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- getHosts with a record type setHosts can't send back (made up), so a write must be refused. -->
+<ApiResponse Status="OK" xmlns="http://api.namecheap.com/xml.response">
+  <Errors />
+  <CommandResponse Type="namecheap.domains.dns.getHosts">
+    <DomainDNSGetHostsResult Domain="example-one.com" EmailType="MX" IsUsingOurDNS="true">
+      <host HostId="201" Name="www" Type="CNAME" Address="example-one.com." MXPref="10" TTL="1800" />
+      <host HostId="202" Name="_sip._tcp" Type="SRV" Address="10 5 5060 sip.example.net." MXPref="10" TTL="1800" />
+    </DomainDNSGetHostsResult>
+  </CommandResponse>
+</ApiResponse>

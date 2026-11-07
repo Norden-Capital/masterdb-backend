@@ -1,5 +1,7 @@
 package ca.nordencapital.masterdb.dns.namecheap;
 
+import ca.nordencapital.masterdb.dns.HostRecord;
+import ca.nordencapital.masterdb.dns.domain.DomainNames;
 import ca.nordencapital.masterdb.web.error.ErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -119,6 +121,73 @@ public class NamecheapClient {
             }
         }
         return new DomainList(domains, total);
+    }
+
+    /** A domain's records at Namecheap ({@code namecheap.domains.dns.getHosts}). */
+    public record Zone(String emailType, boolean usingNamecheapDns, List<HostRecord> records) {
+    }
+
+    public Zone getHosts(NamecheapCredentials credentials, String domain) {
+        Element root = call(credentials, "namecheap.domains.dns.getHosts", sldTld(domain));
+        NodeList results = root.getElementsByTagNameNS("*", "DomainDNSGetHostsResult");
+        if (results.getLength() != 1) {
+            throw new NamecheapException(ErrorCode.NAMECHEAP_ERROR, "Namecheap did not return the DNS records.");
+        }
+        Element zone = (Element) results.item(0);
+        List<HostRecord> records = new ArrayList<>();
+        for (String tag : List.of("host", "Host")) {
+            NodeList hosts = zone.getElementsByTagNameNS("*", tag);
+            for (int i = 0; i < hosts.getLength(); i++) {
+                Element h = (Element) hosts.item(i);
+                records.add(new HostRecord(h.getAttribute("Name"), h.getAttribute("Type"), h.getAttribute("Address"),
+                        h.getAttribute("MXPref"), h.getAttribute("TTL"), h.getAttribute("Flag"), h.getAttribute("Tag")));
+            }
+            if (!records.isEmpty()) {
+                break;
+            }
+        }
+        String emailType = zone.getAttribute("EmailType").trim();
+        return new Zone(emailType.isEmpty() ? "MX" : emailType.toUpperCase(Locale.ROOT),
+                bool(zone.getAttribute("IsUsingOurDNS")), records);
+    }
+
+    /**
+     * {@code namecheap.domains.dns.setHosts}: REPLACES every record of the
+     * domain with {@code records}. Callers must have read and merged first.
+     */
+    public void setHosts(NamecheapCredentials credentials, String domain, String emailType, List<HostRecord> records) {
+        Map<String, String> params = sldTld(domain);
+        params.put("EmailType", emailType);
+        for (int i = 0; i < records.size(); i++) {
+            HostRecord r = records.get(i);
+            int n = i + 1;
+            params.put("HostName" + n, r.name());
+            params.put("RecordType" + n, r.type());
+            params.put("Address" + n, r.address());
+            params.put("TTL" + n, r.ttl());
+            if (r.type().equals("MX") || r.type().equals("MXE")) {
+                params.put("MXPref" + n, r.mxPref().isBlank() ? "10" : r.mxPref());
+            }
+            if (!r.flag().isBlank()) {
+                params.put("Flag" + n, r.flag());
+            }
+            if (!r.tag().isBlank()) {
+                params.put("Tag" + n, r.tag());
+            }
+        }
+        Element root = call(credentials, "namecheap.domains.dns.setHosts", params);
+        NodeList result = root.getElementsByTagNameNS("*", "DomainDNSSetHostsResult");
+        if (result.getLength() != 1 || !bool(((Element) result.item(0)).getAttribute("IsSuccess"))) {
+            throw new NamecheapException(ErrorCode.NAMECHEAP_ERROR, "Namecheap did not confirm the DNS update.");
+        }
+    }
+
+    private static Map<String, String> sldTld(String domain) {
+        String[] parts = DomainNames.sldTld(domain);
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("SLD", parts[0]);
+        params.put("TLD", parts[1]);
+        return params;
     }
 
     /**

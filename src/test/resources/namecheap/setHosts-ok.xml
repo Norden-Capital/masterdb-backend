@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shape from the Namecheap API docs (namecheap.domains.dns.setHosts). Made-up values. -->
+<ApiResponse Status="OK" xmlns="http://api.namecheap.com/xml.response">
+  <Errors />
+  <RequestedCommand>namecheap.domains.dns.sethosts</RequestedCommand>
+  <CommandResponse Type="namecheap.domains.dns.setHosts">
+    <DomainDNSSetHostsResult Domain="example-one.com" IsSuccess="true">
+      <Warnings />
+    </DomainDNSSetHostsResult>
+  </CommandResponse>
+  <Server>TEST</Server>
+</ApiResponse>

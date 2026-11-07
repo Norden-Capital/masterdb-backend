@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shape from the Namecheap API docs (namecheap.domains.dns.getHosts). Made-up values only.
+  A parked domain with extras: Namecheap's default @ URL redirect and www CNAME, a site
+  verification TXT, a shop CNAME, an old SPF, an old MX and an old DMARC, and a DKIM key
+  under another selector.
+-->
+<ApiResponse Status="OK" xmlns="http://api.namecheap.com/xml.response">
+  <Errors />
+  <Warnings />
+  <RequestedCommand>namecheap.domains.dns.gethosts</RequestedCommand>
+  <CommandResponse Type="namecheap.domains.dns.getHosts">
+    <DomainDNSGetHostsResult Domain="example-one.com" EmailType="MX" IsUsingOurDNS="true">
+      <host HostId="101" Name="@" Type="URL" Address="http://www.example-one.com/" MXPref="10" TTL="1800" AssociatedAppTitle="" FriendlyName="" IsActive="true" IsDDNSEnabled="false" />
+      <host HostId="102" Name="www" Type="CNAME" Address="parkingpage.namecheap.com." MXPref="10" TTL="1800" AssociatedAppTitle="" FriendlyName="" IsActive="true" IsDDNSEnabled="false" />
+      <host HostId="103" Name="@" Type="TXT" Address="site-verification=FAKE-not-a-real-token" MXPref="10" TTL="1799" AssociatedAppTitle="" FriendlyName="" IsActive="true" IsDDNSEnabled="false" />
+      <host HostId="104" Name="shop" Type="CNAME" Address="shops.example.net." MXPref="10" TTL="300" AssociatedAppTitle="" FriendlyName="" IsActive="true" IsDDNSEnabled="false" />
+      <host HostId="105" Name="@" Type="TXT" Address="v=spf1 include:old-mail.example.net -all" MXPref="10" TTL="1800" AssociatedAppTitle="" FriendlyName="" IsActive="true" IsDDNSEnabled="false" />
+      <host HostId="106" Name="@" Type="MX" Address="old-mail.example.net." MXPref="20" TTL="1800" AssociatedAppTitle="" FriendlyName="" IsActive="true" IsDDNSEnabled="false" />
+      <host HostId="107" Name="_dmarc" Type="TXT" Address="v=DMARC1; p=none" MXPref="10" TTL="1800" AssociatedAppTitle="" FriendlyName="" IsActive="true" IsDDNSEnabled="false" />
+      <host HostId="108" Name="s1._domainkey" Type="TXT" Address="v=DKIM1; k=rsa; p=FAKEOTHERSELECTORKEY" MXPref="10" TTL="1800" AssociatedAppTitle="" FriendlyName="" IsActive="true" IsDDNSEnabled="false" />
+    </DomainDNSGetHostsResult>
+  </CommandResponse>
+  <Server>TEST</Server>
+  <GMTTimeDifference>--5:00</GMTTimeDifference>
+  <ExecutionTime>0.02</ExecutionTime>
+</ApiResponse>

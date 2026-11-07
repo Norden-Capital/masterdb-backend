@@ -48,6 +48,10 @@ public enum ErrorCode {
     NAMECHEAP_ERROR,
     /** Namecheap could not be reached or sent something unreadable. */
     NAMECHEAP_UNREACHABLE,
+    /** DNS: the records at Namecheap changed after the preview; preview again before writing. */
+    DNS_CHANGED_SINCE_PREVIEW,
+    /** DNS: the records can't be written safely (not a Namecheap domain, other DNS host, record type setHosts can't keep, ...). */
+    DNS_WRITE_REFUSED,
     METHOD_NOT_ALLOWED,
     NOT_ACCEPTABLE,
     CONFLICT,
