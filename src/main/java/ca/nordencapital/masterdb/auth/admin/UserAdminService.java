@@ -89,7 +89,7 @@ public class UserAdminService {
 
     public record UserItem(UUID publicId, String email, String fullName, UserStatus status, boolean isOwner,
             boolean twoFactorEnabled, boolean locked, Instant lastLoginAt, Instant createdAt,
-            Instant inviteExpiresAt) {
+            Instant inviteExpiresAt, int permissionCount) {
     }
 
     public record UserDetail(UserItem user, List<String> permissions, long recoveryCodesRemaining,
@@ -317,7 +317,8 @@ public class UserAdminService {
         Instant now = clock.instant();
         boolean locked = u.getLockedUntil() != null && now.isBefore(u.getLockedUntil());
         return new UserItem(u.getPublicId(), u.getEmail(), u.getFullName(), u.getStatus(), u.isOwner(),
-                u.isTwoFactorEnabled(), locked, u.getLastLoginAt(), u.getCreatedAt(), inviteExpiresAt);
+                u.isTwoFactorEnabled(), locked, u.getLastLoginAt(), u.getCreatedAt(), inviteExpiresAt,
+                permissions.effective(u).size());
     }
 
     private static String requestId() {

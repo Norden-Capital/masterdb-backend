@@ -116,7 +116,7 @@ class UsersFlowTest {
         HttpResponse<String> all = get("/api/v1/users?sort=email", owner);
         assertThat(all.statusCode()).isEqualTo(200);
         assertThat(all.body()).contains("\"totalItems\":3", "\"email\":\"admin@example.com\"", "\"isOwner\":true",
-                "\"twoFactorEnabled\":true").doesNotContain("passwordHash", "totp");
+                "\"twoFactorEnabled\":true", "\"permissionCount\":5").doesNotContain("passwordHash", "totp");
         assertThat(all.body().indexOf("admin@")).isLessThan(all.body().indexOf("jane@"));
 
         assertThat(get("/api/v1/users?q=JANE", owner).body()).contains("\"totalItems\":1", "jane@example.com");

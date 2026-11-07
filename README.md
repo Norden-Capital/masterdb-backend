@@ -348,7 +348,19 @@ docs-off filter → Spring Security (session cookie, access rules) → controlle
 
 #### Try it locally
 
-`./mvnw spring-boot:run` (the `local` profile: no proxy secret, cookie not `Secure`). Create
+Without Docker (embedded PostgreSQL, empty at every start, `local` profile, port 8080):
+
+```bash
+./mvnw -q test-compile dependency:build-classpath -Dmdep.outputFile=target/cp.txt -Dmdep.includeScope=test
+java -cp "target/test-classes;target/classes;$(cat target/cp.txt)" ca.nordencapital.testsupport.LocalDevServer
+```
+
+(`;` separates the classpath on Windows, `:` elsewhere.) Set `BOOTSTRAP_OWNER_EMAIL` /
+`_PASSWORD` in the environment first to get an Owner. Emails are not sent locally: the
+invite / reset link is printed in full in the log. Then run the frontend with
+`BACKEND_URL=http://localhost:8080` and any `PROXY_SECRET` (the check is off locally).
+
+Or with Docker: `./mvnw spring-boot:run` (the `local` profile: no proxy secret, cookie not `Secure`). Create
 the first account with the `BOOTSTRAP_OWNER_*` variables, then log in with the cookie jar
 from playbook phase 13, pointed at `http://localhost:8080`. The same commands check the live
 site through `https://db.nordencapital.ca`; the password is typed into a hidden prompt and
