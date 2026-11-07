@@ -437,6 +437,15 @@ restart frees the claims of the old workers and resumes every RUNNING job. A ser
 
 Activity: `VALIDATION_JOB_STARTED`, `_STOPPED`, `_RESUMED`, `_RETRIED`, `_FINISHED`, `_DELETED`.
 
+**Results, exports, List status (job 3, `ResultsController`).**
+
+| Call | Permission |
+| --- | --- |
+| `GET /api/v1/validation/jobs/{id}/emails?category=VALID…UNKNOWN\|PENDING&q=` (list order, with reason, reply, server) | VALIDATION:VIEW |
+| `GET …/jobs/{id}/export?category=VALID…UNKNOWN` → `.txt`, one address per line; `category=DETAILS` → CSV (email, category, smtp_code, mail_server, server, checked_at, reason, provider_reply; UTF-8 BOM; cells starting with `= + - @` prefixed with `'`). Streamed; activity `VALIDATION_EXPORTED` | VALIDATION:EXPORT |
+| `GET /api/v1/validation/status` → `{addresses, jobs, categories: {VALID: n, …}}`: every address validated in any job, counted once by its **latest** result | VALIDATION:VIEW |
+| `GET /api/v1/validation/status/emails?category=&q=` (latest result per address, newest first) | VALIDATION:VIEW |
+
 Single checks are kept 90 days (`app.validation.check-retention`, pruned daily 03:50 UTC).
 Errors: 400 for a malformed address, 409 `SERVER_NOT_READY`, 424 `SSH_FAILED`. Tests use
 `testsupport/FakeSmtpServer` (127.0.0.1) reached through the fake SSH server: no test talks to a
