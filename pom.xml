@@ -31,6 +31,9 @@
 		<embedded-postgres.version>2.1.0</embedded-postgres.version>
 		<embedded-postgres-binaries.version>16.15.0</embedded-postgres-binaries.version>
 		<springdoc.version>3.2.0</springdoc.version>
+		<sshd.version>2.20.1</sshd.version>
+		<!-- The version Mina SSHD 2.20.1 is built against; gives Mina its ed25519 support. -->
+		<bouncycastle.version>1.86</bouncycastle.version>
 		<!-- ./mvnw spring-boot:run starts with the "local" profile
 		     (application-local.yml: API docs on). Only the Maven plugin reads this;
 		     the jar in the Docker image never sees it. Override with
@@ -84,6 +87,22 @@
 			<artifactId>spring-boot-starter-security</artifactId>
 		</dependency>
 
+		<!-- SSH to the VPS servers (Server management): client in the app, embedded server in tests. -->
+		<dependency>
+			<groupId>org.apache.sshd</groupId>
+			<artifactId>sshd-core</artifactId>
+			<version>${sshd.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.bouncycastle</groupId>
+			<artifactId>bcprov-jdk18on</artifactId>
+			<version>${bouncycastle.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.bouncycastle</groupId>
+			<artifactId>bcpkix-jdk18on</artifactId>
+			<version>${bouncycastle.version}</version>
+		</dependency>
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>

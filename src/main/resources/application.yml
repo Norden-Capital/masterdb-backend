@@ -45,6 +45,9 @@ server:
 logging:
   pattern:
     correlation: "[%X{requestId:--}] "
+  level:
+    # Mina SSHD logs every closed connection at INFO/WARN; our own lines say what matters.
+    org.apache.sshd: ERROR
 
 # Only /actuator/health is reachable. The deploy waits on it.
 management:
@@ -163,6 +166,13 @@ app:
     timeout: 3s
     # Every domain re-checked daily (UTC).
     health-cron: "0 15 4 * * *"
+
+  # Server management (servers/). MasterDB logs in to VPS servers with its own
+  # ed25519 key (made on first use, private key encrypted with ENCRYPTION_KEY).
+  # Only public IPv4 addresses may be added; the `local` profile and the tests
+  # allow private ones for the embedded fake SSH server.
+  servers:
+    allow-private-ips: false
 
   # Browsers may call this API only from these sites (CorsConfig).
   # Comma-separated. The `local` profile adds http://localhost:3000.

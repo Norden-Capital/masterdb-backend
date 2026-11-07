@@ -52,6 +52,14 @@ public enum ErrorCode {
     DNS_CHANGED_SINCE_PREVIEW,
     /** DNS: the records can't be written safely (not a Namecheap domain, other DNS host, record type setHosts can't keep, ...). */
     DNS_WRITE_REFUSED,
+    /** Servers: the server presented a different SSH host key than the pinned one; blocked until the Owner accepts it. */
+    SERVER_HOST_KEY_CHANGED,
+    /** Servers: no trusted host key yet (connect and trust the fingerprint first), or the server can't be used now. */
+    SERVER_NOT_READY,
+    /** Servers: the SSH connection or the remote command failed; {@code detail} says why. */
+    SSH_FAILED,
+    /** MTA: an install is already running on this server. */
+    MTA_INSTALL_RUNNING,
     METHOD_NOT_ALLOWED,
     NOT_ACCEPTABLE,
     CONFLICT,

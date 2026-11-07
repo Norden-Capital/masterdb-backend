@@ -194,7 +194,8 @@ Per-user grants on **module × action**, a permission is written `MODULE:ACTION`
 | `DASHBOARD` | VIEW (added in M2, `V7__dashboard_permission.sql`: existing non-owner accounts got it) |
 | `CONTACTS`, `SEGMENTS`, `SUPPRESSION` | VIEW, CREATE, EDIT, DELETE, EXPORT |
 | `VALIDATION` | VIEW, RUN, EXPORT, DELETE |
-| `VALIDATION_SERVERS` | VIEW, CREATE, EDIT, DELETE, RUN |
+| `SERVERS` | VIEW, CREATE, EDIT, DELETE, RUN (`V12__servers.sql`; replaced the unused `VALIDATION_SERVERS`, whose grants moved over) |
+| `MTA` | VIEW, CREATE, EDIT, DELETE, RUN (`V12__servers.sql`; nobody gets it automatically) |
 | `USERS` | VIEW, CREATE, EDIT, DELETE |
 | `ACTIVITY_LOG` | VIEW, EXPORT |
 | `BACKUPS` | VIEW, RUN, DELETE |
@@ -213,7 +214,6 @@ Per-user grants on **module × action**, a permission is written `MODULE:ACTION`
 #### DNS management
 
 Namecheap account, domains, managed DNS records and DNS health (`dns/` package, V8–V11).
-Details and choices: `playbook-notes/dns.md` in the workspace.
 
 | Call | Permission |
 | --- | --- |
@@ -235,6 +235,50 @@ Details and choices: `playbook-notes/dns.md` in the workspace.
   `DNS_CHANGED_SINCE_PREVIEW` if Namecheap changed) → snapshot → setHosts → getHosts to verify.
   Unsafe cases are 409 `DNS_WRITE_REFUSED`.
 - Health: daily at 04:15 UTC (`app.dns.health-cron`) for every domain, plus "Re-check".
+
+#### Server management
+
+VPS servers reached over SSH, their health, their link to a domain, and the mail server
+(MTA) on them (`servers/` package, V12 on). SSH is Apache Mina SSHD (`servers/ssh/`), with
+BouncyCastle for ed25519.
+
+**SSH key, never passwords.** MasterDB has ONE ed25519 key pair (`ssh_identity`, made on
+the first `GET /api/v1/servers/ssh-key`). The private key is stored in OpenSSH format,
+AES-GCM encrypted with `ENCRYPTION_KEY` (context `ssh:identity`), decrypted in memory only to
+log in, never returned and never logged. The API shows the public key, its fingerprint and a
+one-line command that appends it to `~/.ssh/authorized_keys` on the VPS (idempotent). The
+SSH client uses only that key: no passwords, no `~/.ssh/config`, no keys or known_hosts from
+the backend's home folder.
+
+**Host keys: trust on first use, then strict.** "Connect" opens a connection only far enough
+to read the host key (no login). With no trusted key yet the server becomes `KEY_PENDING`
+and the fingerprint is shown once; "Trust" (with that exact fingerprint) pins the full key
+and tests the login. After that every connection must present exactly the pinned key; no
+prompt is ever shown again. A different key blocks the server (`KEY_CHANGED`, activity
+`SERVER_HOST_KEY_CHANGED`, nothing is sent to it) until **the Owner** accepts the new key.
+A new IP or SSH port forgets the pinned key. The login test reads `/etc/os-release` and
+whether the user is root or has passwordless sudo (needed for the MTA).
+
+| Call | Permission |
+| --- | --- |
+| `GET /api/v1/servers/ssh-key` → `{publicKey, fingerprint, installCommand, createdAt}` | SERVERS:VIEW |
+| `GET /api/v1/servers` (`q` name/IP, `connection`, `expiry` EXPIRED/DAYS_14/DAYS_30; sort name, ip, expiresOn, createdAt, connectionStatus) / `GET …/{id}` | SERVERS:VIEW |
+| `POST /api/v1/servers` `{name, ip, sshPort=22, sshUser=root, expiresOn, notes?, domainId?}` → 201 | SERVERS:CREATE |
+| `PUT /api/v1/servers/{id}` (same body) | SERVERS:EDIT |
+| `DELETE /api/v1/servers/{id}` (MasterDB only; nothing changes on the VPS) | SERVERS:DELETE |
+| `POST …/{id}/connect` → `{outcome, message, server}`: KEY_PENDING, CONNECTED, AUTH_FAILED, UNREACHABLE or KEY_CHANGED (always 200) | SERVERS:RUN |
+| `POST …/{id}/host-key/trust` `{fingerprint}` (first use only; 409 otherwise) | SERVERS:CREATE |
+| `POST …/{id}/host-key/replace` `{fingerprint}` (**Owner only**, only while KEY_CHANGED) | SERVERS:EDIT + Owner |
+
+- Only public IPv4 addresses (`app.servers.allow-private-ips`, true only in the `local`
+  profile and the tests); one server per IP + port; one server per domain.
+- Errors: 409 `SERVER_HOST_KEY_CHANGED` (blocked), 409 `SERVER_NOT_READY` (no trusted key
+  yet), 424 `SSH_FAILED` (unreachable, key refused, timeout; `detail` says which).
+- Activity: `SSH_KEY_CREATED`, `SERVER_ADDED`, `SERVER_UPDATED`, `SERVER_DELETED`,
+  `SERVER_CONNECTED`, `SERVER_HOST_KEY_TRUSTED`, `SERVER_HOST_KEY_CHANGED`,
+  `SERVER_HOST_KEY_REPLACED`.
+- Tests never reach a real server: `testsupport/FakeSshServer` is an embedded Mina SSH
+  server on 127.0.0.1 with scripted answers (it never runs a shell).
 
 #### Dashboard (M2.4)
 
@@ -406,10 +450,8 @@ invite / reset link is printed in full in the log. Then run the frontend with
 `BACKEND_URL=http://localhost:8080` and any `PROXY_SECRET` (the check is off locally).
 
 Or with Docker: `./mvnw spring-boot:run` (the `local` profile: no proxy secret, cookie not `Secure`). Create
-the first account with the `BOOTSTRAP_OWNER_*` variables, then log in with the cookie jar
-from playbook phase 13, pointed at `http://localhost:8080`. The same commands check the live
-site through `https://db.nordencapital.ca`; the password is typed into a hidden prompt and
-piped to curl, never written to a file or the shell history.
+the first account with the `BOOTSTRAP_OWNER_*` variables, then sign in through the frontend
+pointed at `http://localhost:8080`.
 
 ### API conventions
 

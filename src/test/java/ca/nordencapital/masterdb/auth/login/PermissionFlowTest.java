@@ -126,7 +126,7 @@ class PermissionFlowTest {
         String token = fixture.signIn(MEMBER, PASSWORD);
         HttpResponse<String> response = client.send("GET", "/api/v1/permissions/catalogue", token, null);
         assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(response.body()).contains("{\"key\":\"VALIDATION_SERVERS\",\"label\":\"Validation servers\"",
+        assertThat(response.body()).contains("{\"key\":\"SERVERS\",\"label\":\"Servers\"",
                 "{\"key\":\"RUN\",\"label\":\"Run\"}", "\"key\":\"VIEWER\"", "\"key\":\"OPERATOR\"", "\"key\":\"ADMIN\"");
         assertThat(client.send("GET", "/api/v1/permissions/catalogue", null, null).statusCode()).isEqualTo(401);
     }

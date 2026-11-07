@@ -32,3 +32,6 @@ app:
   mail:
     enabled: false
     log-links: true
+  # The embedded fake SSH server listens on 127.0.0.1.
+  servers:
+    allow-private-ips: true

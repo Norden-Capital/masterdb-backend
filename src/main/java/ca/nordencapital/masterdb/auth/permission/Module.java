@@ -19,7 +19,10 @@ public enum Module {
     DASHBOARD("Dashboard", EnumSet.of(VIEW)),
     CONTACTS("Contacts", EnumSet.of(VIEW, CREATE, EDIT, DELETE, EXPORT)),
     VALIDATION("Validation", EnumSet.of(VIEW, RUN, EXPORT, DELETE)),
-    VALIDATION_SERVERS("Validation servers", EnumSet.of(VIEW, CREATE, EDIT, DELETE, RUN)),
+    /** VPS servers: add, connect over SSH, health, domain link (V12; replaced the unused VALIDATION_SERVERS). */
+    SERVERS("Servers", EnumSet.of(VIEW, CREATE, EDIT, DELETE, RUN)),
+    /** Mail server on a VPS: install (CREATE, EDIT = re-run), services, logs, queue (V12). */
+    MTA("MTA", EnumSet.of(VIEW, CREATE, EDIT, DELETE, RUN)),
     SEGMENTS("Segments", EnumSet.of(VIEW, CREATE, EDIT, DELETE, EXPORT)),
     SUPPRESSION("Suppression", EnumSet.of(VIEW, CREATE, EDIT, DELETE, EXPORT)),
     USERS("Users", EnumSet.of(VIEW, CREATE, EDIT, DELETE)),

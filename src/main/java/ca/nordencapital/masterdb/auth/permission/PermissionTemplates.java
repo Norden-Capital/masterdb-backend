@@ -24,7 +24,7 @@ public final class PermissionTemplates {
         return List.of(
                 new Template("VIEWER", "Viewer", "Sees the data, changes nothing.", viewer()),
                 new Template("OPERATOR", "Operator",
-                        "Works with contacts, lists, validation and suppression; runs validation servers.",
+                        "Works with contacts, lists, validation and suppression; runs server checks.",
                         operator()),
                 new Template("ADMIN", "Admin", "Everything, including users, backups and settings.",
                         Permission.all()));
@@ -34,7 +34,7 @@ public final class PermissionTemplates {
         SortedSet<Permission> out = new TreeSet<>();
         out.add(new Permission(Module.DASHBOARD, Action.VIEW));
         DATA.forEach(m -> out.add(new Permission(m, Action.VIEW)));
-        out.add(new Permission(Module.VALIDATION_SERVERS, Action.VIEW));
+        out.add(new Permission(Module.SERVERS, Action.VIEW));
         return out;
     }
 
@@ -42,8 +42,8 @@ public final class PermissionTemplates {
         SortedSet<Permission> out = new TreeSet<>();
         out.add(new Permission(Module.DASHBOARD, Action.VIEW));
         DATA.forEach(m -> m.actions().forEach(a -> out.add(new Permission(m, a))));
-        out.add(new Permission(Module.VALIDATION_SERVERS, Action.VIEW));
-        out.add(new Permission(Module.VALIDATION_SERVERS, Action.RUN));
+        out.add(new Permission(Module.SERVERS, Action.VIEW));
+        out.add(new Permission(Module.SERVERS, Action.RUN));
         return out;
     }
 }
