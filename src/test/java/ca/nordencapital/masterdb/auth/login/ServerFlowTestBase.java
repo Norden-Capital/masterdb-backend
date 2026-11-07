@@ -1,6 +1,7 @@
 package ca.nordencapital.masterdb.auth.login;
 
 import ca.nordencapital.testsupport.FakeDnsLookup;
+import ca.nordencapital.testsupport.FakeDnsblLookup;
 import ca.nordencapital.testsupport.FakeSshServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 127.0.0.1 that has MasterDB's public key authorized. No test reaches a real
  * server.
  */
-@Import(FakeDnsLookup.Config.class)
+@Import({FakeDnsLookup.Config.class, FakeDnsblLookup.Config.class})
 abstract class ServerFlowTestBase extends DnsFlowTestBase {
 
     static final FakeSshServer SSH = new FakeSshServer(0);

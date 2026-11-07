@@ -173,6 +173,12 @@ app:
   # allow private ones for the embedded fake SSH server.
   servers:
     allow-private-ips: false
+    # Every server re-checked daily (UTC): SSH, port 25 out, PTR, DNSBL, expiry.
+    health-cron: "0 30 4 * * *"
+    # Resolvers for blocklist (DNSBL) lookups. Empty = the server's own resolver.
+    # Spamhaus refuses public resolvers (1.1.1.1, 8.8.8.8): such answers are shown
+    # as "couldn't check", never as "not listed".
+    dnsbl-resolvers: ${APP_DNSBL_RESOLVERS:}
 
   # Browsers may call this API only from these sites (CorsConfig).
   # Comma-separated. The `local` profile adds http://localhost:3000.

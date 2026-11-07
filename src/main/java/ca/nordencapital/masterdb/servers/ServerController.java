@@ -8,6 +8,7 @@ import ca.nordencapital.masterdb.servers.ServerService.ConnectResult;
 import ca.nordencapital.masterdb.servers.ServerService.ConnectionStatus;
 import ca.nordencapital.masterdb.servers.ServerService.Expiry;
 import ca.nordencapital.masterdb.servers.ServerService.Filter;
+import ca.nordencapital.masterdb.servers.ServerService.HealthFilter;
 import ca.nordencapital.masterdb.servers.ServerService.Input;
 import ca.nordencapital.masterdb.servers.ServerService.ServerItem;
 import ca.nordencapital.masterdb.servers.ssh.SshIdentityService;
@@ -72,13 +73,14 @@ public class ServerController {
 
     @Operation(summary = "List servers", description = "Search `q` in name and IP; filter `connection` "
             + "(NEW, KEY_PENDING, CONNECTED, AUTH_FAILED, UNREACHABLE, KEY_CHANGED), `expiry` (EXPIRED, DAYS_14, "
-            + "DAYS_30). Sort: name, ip, expiresOn, createdAt, connectionStatus.")
+            + "DAYS_30), `health` (OK, WARNING, PROBLEM, ERROR, UNCHECKED). Sort: name, ip, expiresOn, createdAt, "
+            + "connectionStatus, healthStatus.")
     @RequiresPermission(module = Module.SERVERS, action = Action.VIEW)
     @GetMapping
     public PageResponse<ServerItem> list(@ParameterObject PageParams params,
             @RequestParam(required = false) String q, @RequestParam(required = false) ConnectionStatus connection,
-            @RequestParam(required = false) Expiry expiry) {
-        return service.list(new Filter(q, connection, expiry),
+            @RequestParam(required = false) Expiry expiry, @RequestParam(required = false) HealthFilter health) {
+        return service.list(new Filter(q, connection, expiry, health),
                 params.toPageable(ServerService.SORT_COLUMNS.keySet(), Sort.by("name")));
     }
 

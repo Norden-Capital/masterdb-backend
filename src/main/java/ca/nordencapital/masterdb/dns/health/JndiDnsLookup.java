@@ -99,7 +99,10 @@ public class JndiDnsLookup implements DnsLookup {
     private List<String> values(String name, String type) {
         Hashtable<String, String> env = new Hashtable<>();
         env.put("java.naming.factory.initial", "com.sun.jndi.dns.DnsContextFactory");
-        env.put("java.naming.provider.url", providerUrl);
+        if (!providerUrl.isEmpty()) {
+            // Empty = the system's own resolvers (used for DNSBL lookups, see servers/health).
+            env.put("java.naming.provider.url", providerUrl);
+        }
         env.put("com.sun.jndi.dns.timeout.initial", timeoutMs);
         env.put("com.sun.jndi.dns.timeout.retries", "2");
         InitialDirContext ctx = null;

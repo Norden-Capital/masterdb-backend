@@ -58,7 +58,9 @@ public class ServerService {
             "ip", "s.ip",
             "expiresOn", "s.expires_on",
             "createdAt", "s.created_at",
-            "connectionStatus", "s.connection_status");
+            "connectionStatus", "s.connection_status",
+            "healthStatus", "case s.health_status when 'PROBLEM' then 0 when 'ERROR' then 1 when 'WARNING' then 2 "
+                    + "when 'OK' then 3 end");
     private static final Duration LOGIN_TEST_TIMEOUT = Duration.ofSeconds(30);
     private static final Logger log = LoggerFactory.getLogger(ServerService.class);
 
@@ -104,7 +106,12 @@ public class ServerService {
         DAYS_30
     }
 
-    public record Filter(String q, ConnectionStatus connection, Expiry expiry) {
+    public enum HealthFilter { OK, WARNING, PROBLEM, ERROR, UNCHECKED }
+
+    public record Filter(String q, ConnectionStatus connection, Expiry expiry, HealthFilter health) {
+        public Filter(String q, ConnectionStatus connection, Expiry expiry) {
+            this(q, connection, expiry, null);
+        }
     }
 
     public record LinkedDomain(UUID publicId, String name) {
@@ -116,7 +123,8 @@ public class ServerService {
     public record ServerItem(UUID publicId, String name, String ip, int sshPort, String sshUser, LocalDate expiresOn,
             long daysLeft, String notes, LinkedDomain domain, ConnectionStatus connectionStatus,
             String connectionMessage, Instant connectionCheckedAt, KeyView hostKey, KeyView presentedKey,
-            String os, Boolean privileged, Instant createdAt, Instant updatedAt) {
+            String os, Boolean privileged, String healthStatus, Instant healthCheckedAt, Instant createdAt,
+            Instant updatedAt) {
     }
 
     /** Internal: with database ids and the stored keys. */
@@ -150,7 +158,8 @@ public class ServerService {
                     domainId == null ? null : new LinkedDomain(domainId, rs.getString("domain_name")),
                     ConnectionStatus.valueOf(rs.getString("connection_status")), rs.getString("connection_message"),
                     instant(rs.getTimestamp("connection_checked_at")), pinned, seen, rs.getString("os_name"),
-                    (Boolean) rs.getObject("privileged"), instant(rs.getTimestamp("created_at")),
+                    (Boolean) rs.getObject("privileged"), rs.getString("health_status"),
+                    instant(rs.getTimestamp("health_checked_at")), instant(rs.getTimestamp("created_at")),
                     instant(rs.getTimestamp("updated_at")));
             return new Server(rs.getLong("id"), (Long) rs.getObject("domain_id"), rs.getString("host_key"),
                     rs.getString("seen_key"), rs.getString("os_id"), rs.getString("os_version"), item);
@@ -204,6 +213,14 @@ public class ServerService {
                     args.add(Date.valueOf(today));
                     args.add(Date.valueOf(today.plusDays(f.expiry() == Expiry.DAYS_14 ? 14 : 30)));
                 }
+            }
+        }
+        if (f.health() != null) {
+            if (f.health() == HealthFilter.UNCHECKED) {
+                parts.add("s.health_status is null");
+            } else {
+                parts.add("s.health_status = ?");
+                args.add(f.health().name());
             }
         }
         return parts.isEmpty() ? "" : " where " + String.join(" and ", parts);

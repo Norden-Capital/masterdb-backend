@@ -58,6 +58,7 @@ Running the jar some other way (IDE, `java -jar`): add the profile
 | `NAMECHEAP_CLIENT_IP` | `147.93.4.107`: the server's public IPv4, sent as `ClientIp` on every Namecheap call; must be whitelisted in Namecheap |
 | `NAMECHEAP_API_URL` | `https://api.namecheap.com/xml.response` (tests point it at a local fake) |
 | `APP_DNS_RESOLVERS` | `1.1.1.1,8.8.8.8`: public resolvers the DNS health checks ask |
+| `APP_DNSBL_RESOLVERS` | empty = the server's own resolver: used only for blocklist (DNSBL) lookups in server health (Spamhaus refuses public resolvers) |
 | `APP_MAIL_FROM` | `MasterDB <no-reply@nordencapital.ca>` (the domain is verified in Resend) |
 | `APP_FRONTEND_URL` | `https://db.nordencapital.ca` (`local`: `http://localhost:3000`): the website, for links in emails |
 | `APP_AUTH_SESSION_IDLE_TIMEOUT`, `APP_AUTH_SESSION_ABSOLUTE_TIMEOUT` | `12h`, `7d` (see "Authentication") |
@@ -276,9 +277,32 @@ whether the user is root or has passwordless sudo (needed for the MTA).
   yet), 424 `SSH_FAILED` (unreachable, key refused, timeout; `detail` says which).
 - Activity: `SSH_KEY_CREATED`, `SERVER_ADDED`, `SERVER_UPDATED`, `SERVER_DELETED`,
   `SERVER_CONNECTED`, `SERVER_HOST_KEY_TRUSTED`, `SERVER_HOST_KEY_CHANGED`,
-  `SERVER_HOST_KEY_REPLACED`.
+  `SERVER_HOST_KEY_REPLACED`, `SERVER_HEALTH_CHECKED`.
 - Tests never reach a real server: `testsupport/FakeSshServer` is an embedded Mina SSH
   server on 127.0.0.1 with scripted answers (it never runs a shell).
+
+**Health (job 2, `servers/health/`, V13).** Per check: OK, WARNING, PROBLEM, ERROR
+(couldn't tell) or NOT_CHECKED, with the reason; the server's `healthStatus` is PROBLEM, else
+ERROR, else WARNING, else OK. Re-check on demand, and every server daily at 04:30 UTC
+(`app.servers.health-cron`).
+
+| Check | How |
+| --- | --- |
+| SSH | logs in with MasterDB's key (one session, which also runs the port 25 test) |
+| PORT25 | **on the VPS**, over SSH: bash `/dev/tcp` to `gmail-smtp-in.l.google.com`, `mta5.am0.yahoodns.net`, `outlook-com.olc.protection.outlook.com` port 25, 10 s each; OK on the first `220` greeting |
+| PTR | from the backend (public resolvers, like DNS health): reverse DNS of the IP must be the linked domain's mail host |
+| DNSBL | from the backend: Spamhaus ZEN, Barracuda, SpamCop, PSBL, UCEPROTECT L1, Mailspike. NXDOMAIN = not listed; 127.0.0.x = listed (Spamhaus codes named: SBL, CSS, XBL, DROP, PBL); 127.255.255.252/254/255 = Spamhaus **refused** the query and anything outside 127/8 = unreadable: both are ERROR, never "clean" |
+| EXPIRY | WARNING within 14 days, PROBLEM once past |
+
+| Call | Permission |
+| --- | --- |
+| `GET /api/v1/servers/{id}/health` → `{serverId, status, checkedAt, checks:[{check, status, detail, found}]}` | SERVERS:VIEW |
+| `POST /api/v1/servers/{id}/health/check` (up to ~40 s when port 25 is blocked) | SERVERS:RUN |
+
+The list takes `health` (OK, WARNING, PROBLEM, ERROR, UNCHECKED) and sorts by `healthStatus`.
+`APP_DNSBL_RESOLVERS` picks the resolvers for blocklist lookups; empty (default) = the
+server's own resolver. Spamhaus refuses public resolvers such as 1.1.1.1 and 8.8.8.8 (and
+may refuse a busy shared one): then the DNSBL row says so instead of guessing.
 
 #### Dashboard (M2.4)
 
