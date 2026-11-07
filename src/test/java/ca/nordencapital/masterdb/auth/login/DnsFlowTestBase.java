@@ -49,6 +49,7 @@ abstract class DnsFlowTestBase {
     static void properties(DynamicPropertyRegistry registry) {
         TestDatabase.register(registry);
         NamecheapStub.register(registry);
+        ca.nordencapital.testsupport.FakeSmtpServer.register(registry);
     }
 
     @LocalServerPort

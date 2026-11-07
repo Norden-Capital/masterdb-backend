@@ -65,6 +65,19 @@ public class ServerSsh {
         }
     }
 
+    /** An open SSH connection for SMTP probes that leave from the server's IP (the caller closes it). */
+    public SshRunner.Tunnel tunnel(Server s, Duration timeout) {
+        ready(s);
+        try {
+            return runner.tunnel(target(s), timeout);
+        } catch (SshFailure f) {
+            if (f.kind() == SshFailure.Kind.HOST_KEY_CHANGED) {
+                markChanged(s, f.presented());
+            }
+            throw f;
+        }
+    }
+
     /** Logs in once with a password (never stored) to run one command: putting MasterDB's key on the server. */
     public Result runWithPassword(Server s, String password, String command, Duration timeout) {
         ready(s);

@@ -18,3 +18,8 @@ app:
   # The embedded fake SSH server listens on 127.0.0.1.
   servers:
     allow-private-ips: true
+  # SMTP checks go to a FakeSmtpServer on 127.0.0.1 (its port is set by the test), with no waits.
+  validation:
+    allow-private-mx: true
+    gap-scale: 0
+    smtp-timeout: 3s

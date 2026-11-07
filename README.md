@@ -381,6 +381,41 @@ request and kept with the time it was read; nothing is guessed in between.
 
 Activity: `MTA_SERVICE_ACTION` (service, action, ok), `MTA_QUEUE_FLUSHED`, `MTA_REMOVED`.
 
+#### Validation
+
+`validation/` (V17 on). Checks an address over SMTP **through a server**: MasterDB opens an SSH
+connection to the server and asks it (SSH "direct-tcpip", nothing runs on the server) to connect to
+the mail server's port 25, so the check leaves from the server's IP. The conversation uses the
+server's probe identity: `EHLO <heloHost>`, `MAIL FROM:<mailFrom>`, `RCPT TO:<address>`, then
+two made-up addresses at the same domain (catch-all test, remembered 15 min per mail server and
+domain), then `QUIT`. No message is ever sent (never `DATA`).
+
+**The 6 categories** (`validation/Category`): VALID, BOUNCE (no such mailbox, or a null MX),
+SOFT_BOUNCE (mailbox full), REJECT (policy refusal), CATCH_ALL, UNKNOWN (not proven; never a
+bounce). The rules (`engine/SmtpRules`, a test per reply in `SmtpRulesTest`) are the old app's,
+plus: Gmail `5.2.1 ... disabled` = bounce; Microsoft `550 5.5.0 ... (S2017062302)` on the address
+= bounce; a clear answer from the first mail server is final (only an unreachable server or a
+temporary answer moves on to the next, up to 5). Refusals before RCPT (greeting, sender) are never
+a bounce.
+
+**Pacing** (`Pacing`, tables `validation_providers` and `validation_cooldowns`): per provider
+(Google, Microsoft, Yahoo/AOL, every other mail server on its own) a wait between two checks of
+one server, a wait across all servers, and 1.5 s between two checks of one server. A "slow down"
+answer (421, 4.7.x, greylisting, ...) pauses that provider for that server 2 min, a "blocked"
+answer 30 min, doubling each time up to 1 hour; the pause is in the database (survives a
+restart). A check during a pause is not made: it is UNKNOWN with the time it ends.
+
+| Call | Permission |
+| --- | --- |
+| `GET /api/v1/validation/servers` → every server with `ready` / `reason` (connected + linked domain) | VALIDATION:VIEW |
+| `POST /api/v1/validation/checks` `{email, serverId}` → category, reason, the provider's reply, MX, SMTP transcript | VALIDATION:RUN |
+| `GET /api/v1/validation/checks` (`q`, `category`, sort createdAt/email/category/serverName) / `GET …/{id}` | VALIDATION:VIEW |
+
+Single checks are kept 90 days (`app.validation.check-retention`, pruned daily 03:50 UTC).
+Errors: 400 for a malformed address, 409 `SERVER_NOT_READY`, 424 `SSH_FAILED`. Tests use
+`testsupport/FakeSmtpServer` (127.0.0.1) reached through the fake SSH server: no test talks to a
+real mail server.
+
 #### Dashboard (M2.4)
 
 `GET /api/v1/dashboard/summary` (DASHBOARD:VIEW): counted from the database at the call,

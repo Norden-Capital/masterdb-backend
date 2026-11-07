@@ -32,7 +32,41 @@ public interface SshRunner {
      */
     Result execWithPassword(Target target, String password, String command, Duration timeout);
 
+    /**
+     * Logs in with MasterDB's key (same strict host-key check as {@link #exec})
+     * and keeps the connection open for TCP connections made <b>by the server</b>
+     * (SSH "direct-tcpip"): an SMTP probe through it leaves from the server's IP.
+     * Nothing runs on the server. The caller closes it.
+     */
+    Tunnel tunnel(Target target, Duration timeout);
+
     record Target(String host, int port, String user, String pinnedKey) {
+    }
+
+    /** An open SSH connection to one server, for TCP connections from it. */
+    interface Tunnel extends AutoCloseable {
+
+        /**
+         * Asks the server to connect to {@code host:port}; reads from the stream
+         * time out after {@code readTimeout}. Throws {@link java.io.IOException}
+         * when the server can't connect (port 25 blocked, host down).
+         */
+        Stream connect(String host, int port, Duration readTimeout) throws java.io.IOException;
+
+        boolean isOpen();
+
+        @Override
+        void close();
+    }
+
+    /** One TCP connection through a {@link Tunnel}. */
+    interface Stream extends AutoCloseable {
+        java.io.InputStream in();
+
+        java.io.OutputStream out();
+
+        @Override
+        void close();
     }
 
     /** A host key as the server presented it. */

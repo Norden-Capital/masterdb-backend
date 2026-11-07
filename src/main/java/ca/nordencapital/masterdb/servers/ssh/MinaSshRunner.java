@@ -5,7 +5,11 @@ import org.apache.sshd.client.auth.keyboard.UserAuthKeyboardInteractiveFactory;
 import org.apache.sshd.client.auth.password.PasswordIdentityProvider;
 import org.apache.sshd.client.auth.password.UserAuthPasswordFactory;
 import org.apache.sshd.client.auth.pubkey.UserAuthPublicKeyFactory;
+import org.apache.sshd.client.channel.ChannelDirectTcpip;
 import org.apache.sshd.client.channel.ChannelExec;
+import org.apache.sshd.common.channel.ChannelPipedInputStream;
+import org.apache.sshd.common.util.net.SshdSocketAddress;
+import java.io.InputStream;
 import org.apache.sshd.client.channel.ClientChannelEvent;
 import org.apache.sshd.client.config.hosts.HostConfigEntryResolver;
 import org.apache.sshd.client.session.ClientSession;
@@ -137,11 +141,24 @@ public class MinaSshRunner implements SshRunner, DisposableBean {
     }
 
     private <T> T session(Target target, Duration timeout, AuthSetup auth, String refused, SessionStep<T> work) {
+        try (ClientSession session = login(target, timeout, auth, refused)) {
+            return work.apply(session);
+        } catch (SshFailure f) {
+            throw f;
+        } catch (IOException e) {
+            throw failure(e, target.host(), target.port());
+        }
+    }
+
+    /** A logged-in session (the caller closes it); the host key must be the pinned one. */
+    private ClientSession login(Target target, Duration timeout, AuthSetup auth, String refused) {
         AtomicReference<PublicKey> seen = new AtomicReference<>();
         AttributeRepository ctx = AttributeRepository.ofAttributesMap(Map.of(SEEN, seen, EXPECTED,
                 target.pinnedKey()));
         Duration connectTimeout = Duration.ofSeconds(Math.min(20, Math.max(5, timeout.toSeconds())));
-        try (ClientSession session = connect(target.user(), target.host(), target.port(), ctx, connectTimeout)) {
+        ClientSession session = null;
+        try {
+            session = connect(target.user(), target.host(), target.port(), ctx, connectTimeout);
             auth.apply(session);
             try {
                 session.auth().verify(AUTH_TIMEOUT);
@@ -157,11 +174,79 @@ public class MinaSshRunner implements SshRunner, DisposableBean {
                 }
                 throw new SshFailure(SshFailure.Kind.AUTH_REFUSED, refused);
             }
-            return work.apply(session);
+            return session;
         } catch (SshFailure f) {
+            closeQuietly(session);
             throw f;
         } catch (IOException e) {
+            closeQuietly(session);
             throw failure(e, target.host(), target.port());
+        }
+    }
+
+    private static void closeQuietly(ClientSession session) {
+        if (session != null) {
+            try {
+                session.close();
+            } catch (IOException ignored) {
+                // already failing
+            }
+        }
+    }
+
+    @Override
+    public Tunnel tunnel(Target target, Duration timeout) {
+        KeyPair key = identity.keyPair();
+        ClientSession session = login(target, timeout, s -> s.addPublicKeyIdentity(key), "The server refused "
+                + "MasterDB's SSH key for user " + target.user() + ".");
+        return new MinaTunnel(session);
+    }
+
+    /** direct-tcpip channels on one session: the server opens the TCP connection. */
+    private record MinaTunnel(ClientSession session) implements Tunnel {
+
+        @Override
+        public Stream connect(String host, int port, Duration readTimeout) throws IOException {
+            ChannelDirectTcpip channel = session.createDirectTcpipChannel(new SshdSocketAddress("127.0.0.1", 0),
+                    new SshdSocketAddress(host, port));
+            try {
+                channel.open().verify(readTimeout);
+            } catch (IOException e) {
+                channel.close(true);
+                throw new IOException("The server could not connect to " + host + ":" + port, e);
+            }
+            InputStream in = channel.getInvertedOut();
+            if (in instanceof ChannelPipedInputStream piped) {
+                piped.setTimeout(readTimeout.toMillis());
+            }
+            OutputStream out = channel.getInvertedIn();
+            return new Stream() {
+                @Override
+                public InputStream in() {
+                    return in;
+                }
+
+                @Override
+                public OutputStream out() {
+                    return out;
+                }
+
+                @Override
+                public void close() {
+                    // Graceful: what was written (QUIT) is sent first.
+                    channel.close(false);
+                }
+            };
+        }
+
+        @Override
+        public boolean isOpen() {
+            return session.isOpen() && session.isAuthenticated();
+        }
+
+        @Override
+        public void close() {
+            closeQuietly(session);
         }
     }
 

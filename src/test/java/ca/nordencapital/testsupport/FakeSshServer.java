@@ -77,6 +77,8 @@ public final class FakeSshServer implements AutoCloseable {
             return isAuthorized(key);
         });
         server.setCommandFactory((channel, command) -> new Scripted(command));
+        // SMTP probes go through "direct-tcpip"; tests point them at a FakeSmtpServer on 127.0.0.1.
+        server.setForwardingFilter(org.apache.sshd.server.forward.AcceptAllForwardingFilter.INSTANCE);
         try {
             server.start();
         } catch (IOException e) {

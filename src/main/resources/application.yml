@@ -180,6 +180,20 @@ app:
     # as "couldn't check", never as "not listed".
     dnsbl-resolvers: ${APP_DNSBL_RESOLVERS:}
 
+  # Validation (validation/). SMTP checks go through a server's SSH connection
+  # (they leave from its IP) to the mail servers' port 25; mail servers are
+  # looked up with app.dns.resolvers. Only public MX addresses are contacted
+  # (the tests allow 127.0.0.1 for the fake SMTP server).
+  validation:
+    smtp-port: 25
+    smtp-timeout: 20s
+    allow-private-mx: false
+    # 1.0 = the waits of validation_providers as they are (tests use 0).
+    gap-scale: 1.0
+    # Single-check history: kept this long, pruned daily (UTC).
+    check-retention: 90d
+    check-prune-cron: "0 50 3 * * *"
+
   # Browsers may call this API only from these sites (CorsConfig).
   # Comma-separated. The `local` profile adds http://localhost:3000.
   cors:
