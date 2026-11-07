@@ -354,6 +354,25 @@ Errors: 409 `MTA_INSTALL_RUNNING`, 409 `SERVER_NOT_READY` (not connected, no roo
 linked domain, unsupported OS). A server can't be deleted while an install runs. Activity:
 `MTA_INSTALL_STARTED`, `MTA_INSTALL_FINISHED`.
 
+**MTA list and manager (job 5, V16).** Ported from the old app's `MtaControl`: start, stop,
+restart and reset (`systemctl reset-failed`) of postfix, dovecot, opendkim or all three; plus
+recent logs and the mail queue. Fixed scripts with checked arguments, run as root over SSH,
+only on a server with an MTA installed by MasterDB and never while an install runs. The
+status (states from `systemctl is-active`, versions, queue size) is read over SSH on
+request and kept with the time it was read; nothing is guessed in between.
+
+| Call | Permission |
+| --- | --- |
+| `GET /api/v1/mta/servers` / `GET …/{id}` (last status read, `checkedAt`, `message` if the read failed) | MTA:VIEW |
+| `POST …/{id}/status` (read it now) | MTA:VIEW |
+| `POST …/{id}/services/{postfix\|dovecot\|opendkim\|all}/{start\|stop\|restart\|reset}` → new status | MTA:RUN |
+| `GET …/{id}/logs?source=postfix\|dovecot\|opendkim\|mail&lines=10..500` (journalctl, scrubbed) | MTA:VIEW |
+| `GET …/{id}/queue` (`postqueue -j`: count + first 100) | MTA:VIEW |
+| `POST …/{id}/queue/flush` (`postqueue -f`) | MTA:RUN |
+| `DELETE …/{id}` (forget the MTA in MasterDB; nothing changes on the server) | MTA:DELETE |
+
+Activity: `MTA_SERVICE_ACTION` (service, action, ok), `MTA_QUEUE_FLUSHED`, `MTA_REMOVED`.
+
 #### Dashboard (M2.4)
 
 `GET /api/v1/dashboard/summary` (DASHBOARD:VIEW): counted from the database at the call,
