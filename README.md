@@ -55,6 +55,9 @@ Running the jar some other way (IDE, `java -jar`): add the profile
 | `BOOTSTRAP_OWNER_EMAIL`, `BOOTSTRAP_OWNER_PASSWORD`, `BOOTSTRAP_OWNER_NAME` | none, optional: the first account (see "Users & owner bootstrap"). Unset = no account and a warning |
 | `ENCRYPTION_KEY` | none: **required in production** (64 hex characters; encrypts 2FA secrets; the app refuses to start without it). In the `local` profile, unset = a random key per run. **Never change it once set** |
 | `RESEND_API_KEY` | none, optional: emails (invitations, password resets) through Resend. Unset = the app runs and every email is a WARN line instead. The `local` profile and the tests never send |
+| `NAMECHEAP_CLIENT_IP` | `147.93.4.107`: the server's public IPv4, sent as `ClientIp` on every Namecheap call; must be whitelisted in Namecheap |
+| `NAMECHEAP_API_URL` | `https://api.namecheap.com/xml.response` (tests point it at a local fake) |
+| `APP_DNS_RESOLVERS` | `1.1.1.1,8.8.8.8`: public resolvers the DNS health checks ask |
 | `APP_MAIL_FROM` | `MasterDB <no-reply@nordencapital.ca>` (the domain is verified in Resend) |
 | `APP_FRONTEND_URL` | `https://db.nordencapital.ca` (`local`: `http://localhost:3000`): the website, for links in emails |
 | `APP_AUTH_SESSION_IDLE_TIMEOUT`, `APP_AUTH_SESSION_ABSOLUTE_TIMEOUT` | `12h`, `7d` (see "Authentication") |
@@ -196,6 +199,7 @@ Per-user grants on **module × action**, a permission is written `MODULE:ACTION`
 | `ACTIVITY_LOG` | VIEW, EXPORT |
 | `BACKUPS` | VIEW, RUN, DELETE |
 | `SETTINGS` | VIEW, EDIT |
+| `DNS` | VIEW, CREATE, EDIT, DELETE, RUN (`V8__dns_namecheap_account.sql`; nobody gets it automatically) |
 
 - **The Owner holds every permission** and needs no rows.
 - Any action on a module implies its VIEW (saved with it).
@@ -205,6 +209,32 @@ Per-user grants on **module × action**, a permission is written `MODULE:ACTION`
   the user cannot do. `GET /api/v1/permissions/catalogue` lists modules, actions and the
   presets **Viewer / Operator / Admin** (they only fill the editor; nothing links a user
   to a template).
+
+#### DNS management
+
+Namecheap account, domains, managed DNS records and DNS health (`dns/` package, V8–V11).
+Details and choices: `playbook-notes/dns.md` in the workspace.
+
+| Call | Permission |
+| --- | --- |
+| `GET /api/v1/dns/namecheap/account` (never the key, only `apiKeySet`) | DNS:VIEW |
+| `PUT` it (key write-only, blank = keep) / `DELETE` it | DNS:EDIT / DNS:DELETE |
+| `POST /api/v1/dns/namecheap/account/test` (getList; 200 with `ok` + `code`) | DNS:RUN |
+| `GET /api/v1/dns/domains` (`q`, `source`, `expiry`, `health`, sort) / `GET …/{id}` | DNS:VIEW |
+| `POST /api/v1/dns/domains` (by hand) / `GET /api/v1/dns/namecheap/domains` / `POST /api/v1/dns/domains/import` | DNS:CREATE |
+| `DELETE /api/v1/dns/domains/{id}` | DNS:DELETE |
+| `GET …/{id}/dns-settings`, `…/snapshots`, `…/snapshots/{sid}` | DNS:VIEW |
+| `PUT …/{id}/dns-settings`, `GET …/records/preview`, `POST …/records/apply`, `GET …/snapshots/{sid}/restore-preview`, `POST …/snapshots/{sid}/restore` | DNS:EDIT |
+| `GET …/{id}/health` / `POST …/{id}/health/check` | DNS:VIEW / DNS:RUN |
+
+- Namecheap failures answer **424** with `NAMECHEAP_IP_NOT_WHITELISTED`, `NAMECHEAP_INVALID_KEY`,
+  `NAMECHEAP_ERROR` or `NAMECHEAP_UNREACHABLE` (not 502: every 5xx detail is replaced by a
+  generic text, and the user needs the reason). No account = 409 `NAMECHEAP_NOT_CONFIGURED`.
+- Writes: `setHosts` replaces every record, so a write is always getHosts → merge (every
+  unmanaged record kept) → preview with a `token` → apply with the token (409
+  `DNS_CHANGED_SINCE_PREVIEW` if Namecheap changed) → snapshot → setHosts → getHosts to verify.
+  Unsafe cases are 409 `DNS_WRITE_REFUSED`.
+- Health: daily at 04:15 UTC (`app.dns.health-cron`) for every domain, plus "Re-check".
 
 #### Dashboard (M2.4)
 

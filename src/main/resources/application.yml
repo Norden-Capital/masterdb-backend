@@ -156,6 +156,14 @@ app:
     client-ip: ${NAMECHEAP_CLIENT_IP:147.93.4.107}
     timeout: 60s
 
+  # DNS health checks (dns/health/): asked of these public resolvers, not the
+  # server's own, so the result is what the rest of the internet sees.
+  dns:
+    resolvers: ${APP_DNS_RESOLVERS:1.1.1.1,8.8.8.8}
+    timeout: 3s
+    # Every domain re-checked daily (UTC).
+    health-cron: "0 15 4 * * *"
+
   # Browsers may call this API only from these sites (CorsConfig).
   # Comma-separated. The `local` profile adds http://localhost:3000.
   cors:
