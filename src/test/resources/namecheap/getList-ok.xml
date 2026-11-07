@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shape from the Namecheap API docs (namecheap.domains.getList). Made-up values only. -->
+<ApiResponse Status="OK" xmlns="http://api.namecheap.com/xml.response">
+  <Errors />
+  <Warnings />
+  <RequestedCommand>namecheap.domains.getlist</RequestedCommand>
+  <CommandResponse Type="namecheap.domains.getList">
+    <DomainGetListResult>
+      <Domain ID="1001" Name="example-one.com" User="testuser" Created="02/15/2024" Expires="02/15/2027" IsExpired="false" IsLocked="false" AutoRenew="true" WhoisGuard="ENABLED" IsPremium="false" IsOurDNS="true" />
+      <Domain ID="1002" Name="Example-Two.net" User="testuser" Created="06/01/2023" Expires="06/01/2026" IsExpired="true" IsLocked="false" AutoRenew="false" WhoisGuard="NOTPRESENT" IsPremium="false" IsOurDNS="false" />
+      <Domain ID="1003" Name="example-three.org" User="testuser" Created="11/20/2025" Expires="11/20/2026" IsExpired="false" IsLocked="true" AutoRenew="false" WhoisGuard="ENABLED" IsPremium="false" IsOurDNS="true" />
+    </DomainGetListResult>
+    <Paging>
+      <TotalItems>3</TotalItems>
+      <CurrentPage>1</CurrentPage>
+      <PageSize>100</PageSize>
+    </Paging>
+  </CommandResponse>
+  <Server>TEST</Server>
+  <GMTTimeDifference>--5:00</GMTTimeDifference>
+  <ExecutionTime>0.01</ExecutionTime>
+</ApiResponse>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the stub answers for a command a test did not set up. -->
+<ApiResponse Status="ERROR" xmlns="http://api.namecheap.com/xml.response">
+  <Errors>
+    <Error Number="2030288">Unexpected command in test stub</Error>
+  </Errors>
+</ApiResponse>

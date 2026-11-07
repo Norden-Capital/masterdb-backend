@@ -148,6 +148,14 @@ app:
   activity:
     retention: 365d
 
+  # Namecheap API (dns/namecheap/). The account (API user, username, encrypted
+  # key) is saved in the app, not here. ClientIp must be this server's public
+  # IPv4 and be whitelisted in Namecheap (Profile → Tools → API Access).
+  namecheap:
+    base-url: ${NAMECHEAP_API_URL:https://api.namecheap.com/xml.response}
+    client-ip: ${NAMECHEAP_CLIENT_IP:147.93.4.107}
+    timeout: 60s
+
   # Browsers may call this API only from these sites (CorsConfig).
   # Comma-separated. The `local` profile adds http://localhost:3000.
   cors:

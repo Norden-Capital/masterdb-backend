@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made up: an error text that quotes the key back, to prove it is hidden before it reaches anyone. -->
+<ApiResponse Status="ERROR" xmlns="http://api.namecheap.com/xml.response">
+  <Errors>
+    <Error Number="2011166">Something odd about request FAKEKEYtest0000fake1111nope2222</Error>
+  </Errors>
+  <Warnings />
+  <RequestedCommand />
+  <Server>TEST</Server>
+</ApiResponse>

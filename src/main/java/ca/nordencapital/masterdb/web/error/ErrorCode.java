@@ -38,6 +38,16 @@ public enum ErrorCode {
     /** Signed in, but not allowed to do this. */
     FORBIDDEN,
     NOT_FOUND,
+    /** DNS: no Namecheap account is saved yet. */
+    NAMECHEAP_NOT_CONFIGURED,
+    /** Namecheap refused the call because this server's IP is not on the account's API whitelist. */
+    NAMECHEAP_IP_NOT_WHITELISTED,
+    /** Namecheap refused the API key or API user (wrong key, or API access not turned on). */
+    NAMECHEAP_INVALID_KEY,
+    /** Namecheap answered with another error; {@code detail} has its message. */
+    NAMECHEAP_ERROR,
+    /** Namecheap could not be reached or sent something unreadable. */
+    NAMECHEAP_UNREACHABLE,
     METHOD_NOT_ALLOWED,
     NOT_ACCEPTABLE,
     CONFLICT,

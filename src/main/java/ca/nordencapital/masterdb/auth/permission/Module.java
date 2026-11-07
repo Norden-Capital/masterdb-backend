@@ -25,7 +25,9 @@ public enum Module {
     USERS("Users", EnumSet.of(VIEW, CREATE, EDIT, DELETE)),
     ACTIVITY_LOG("Activity log", EnumSet.of(VIEW, EXPORT)),
     BACKUPS("Backups", EnumSet.of(VIEW, RUN, DELETE)),
-    SETTINGS("Settings", EnumSet.of(VIEW, EDIT));
+    SETTINGS("Settings", EnumSet.of(VIEW, EDIT)),
+    /** Namecheap account, domains, DNS records and DNS health (V8). */
+    DNS("DNS management", EnumSet.of(VIEW, CREATE, EDIT, DELETE, RUN));
 
     private final String label;
     private final Set<Action> actions;
