@@ -303,6 +303,11 @@ public class ServerService {
     @Transactional
     public void delete(AuthPrincipal caller, UUID publicId) {
         Server s = find(publicId);
+        Integer running = jdbc.queryForObject("select count(*) from mta_installs where server_id = ? and status in "
+                + "('QUEUED', 'RUNNING')", Integer.class, s.id());
+        if (running != null && running > 0) {
+            throw new ConflictException("An MTA install is running on this server. Wait for it to finish.");
+        }
         jdbc.update("delete from servers where id = ?", s.id());
         activity.record(ActivityAction.SERVER_DELETED, Party.of(caller), party(s),
                 Map.of("ip", s.item().ip()));

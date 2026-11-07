@@ -141,6 +141,26 @@ public class DnsRecordService {
         return saved;
     }
 
+    /**
+     * The MTA install read the DKIM public key back from the server: it
+     * becomes this domain's DKIM setting. Nothing is written at Namecheap:
+     * that stays the preview → confirm → snapshot → write flow.
+     */
+    @Transactional
+    public void dkimFromServer(long domainId, String selector, String publicKey, Party server) {
+        DnsSettings s = validate(new DnsSettings(null, selector, publicKey, null, null, null, null));
+        jdbc.update("update domains set dkim_selector = ?, dkim_public_key = ?, dns_settings_updated_at = ?, "
+                        + "updated_at = ? where id = ?", s.dkimSelector(), s.dkimPublicKey(),
+                Timestamp.from(clock.instant()), Timestamp.from(clock.instant()), domainId);
+        String name = jdbc.queryForObject("select name from domains where id = ?", String.class, domainId);
+        UUID publicId = jdbc.queryForObject("select public_id from domains where id = ?", UUID.class, domainId);
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("dkimSelector", s.dkimSelector());
+        details.put("dkimKey", true);
+        details.put("source", "MTA install on " + server.label());
+        activity.record(ActivityAction.DNS_SETTINGS_CHANGED, server, new Party(publicId, name), details);
+    }
+
     static DnsSettings validate(DnsSettings in) {
         List<FieldViolation> errors = new ArrayList<>();
         String ip = blankToNull(in.mailIp());

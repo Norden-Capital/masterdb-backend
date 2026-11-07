@@ -321,6 +321,39 @@ server per domain). While linked:
 
 Activity: `SERVER_IDENTITY_CHANGED`.
 
+**Install MTA (job 4, `mta/`, V15).** Ported from the old app's MTA plan (`MtaPlans.mtaScript`):
+Postfix, Dovecot IMAP and OpenDKIM (selector `mail`, port 8891 milter), plus optional
+Roundcube webmail with one mailbox, on Ubuntu 22.04 / 24.04 or AlmaLinux 8 / 9 / 10.
+
+- **A background job in the database** (`mta_installs`): the page starts it and polls; closing
+  the page changes nothing. One active job per server. At startup, jobs that were `QUEUED` or
+  `RUNNING` become `INTERRUPTED` (the backend restarted); run the install again.
+- **Steps, each a root script safe to repeat** (`bash -s`, through `sudo -n` for a non-root
+  user): check the OS, packages (`apt-get` never prompts; waits for the dpkg lock), host name =
+  the server's HELO host, Postfix settings (`postconf -e`), DKIM key, OpenDKIM config, start
+  services, [webmail], read back the DKIM public key, hand it to DNS. Progress is
+  `stepsDone / stepsTotal` exactly as finished; no estimate.
+- **DKIM key made ON the server** (`opendkim-genkey -b 2048`, only if none exists). Only the
+  public key is read back (from `mail.txt`); MasterDB never holds the private key.
+- **DNS is never written silently**: the public key becomes the domain's DKIM setting
+  (activity `DNS_SETTINGS_CHANGED`), the domain's A/MX/SPF already use the linked server's IP,
+  and writing goes through the DNS module's preview → confirm → snapshot → write.
+- **Log**: each output line goes through `mta/LogScrubber` (the mailbox password, any PEM
+  private-key block, `password=`/`token=`/`api_key=`-style values) before it is stored; the
+  newest 256 KB are kept. The mailbox password is sent once, inside the script on stdin, and
+  is never stored.
+
+| Call | Permission |
+| --- | --- |
+| `GET /api/v1/mta/candidates` → servers with `ready` / `reason` and their last install | MTA:VIEW |
+| `POST /api/v1/mta/installs` `{serverId, webmail?, webmailLogin?, webmailPassword?}` → 202 job | MTA:CREATE (MTA:EDIT too if the server already has an MTA) |
+| `GET /api/v1/mta/installs/{id}?logFrom=n` → status, steps, `stepsDone/stepsTotal`, log from `n`, `logLength`, DKIM public key | MTA:VIEW |
+| `GET /api/v1/mta/installs?serverId=` → the server's last 20 installs | MTA:VIEW |
+
+Errors: 409 `MTA_INSTALL_RUNNING`, 409 `SERVER_NOT_READY` (not connected, no root/sudo, no
+linked domain, unsupported OS). A server can't be deleted while an install runs. Activity:
+`MTA_INSTALL_STARTED`, `MTA_INSTALL_FINISHED`.
+
 #### Dashboard (M2.4)
 
 `GET /api/v1/dashboard/summary` (DASHBOARD:VIEW): counted from the database at the call,
