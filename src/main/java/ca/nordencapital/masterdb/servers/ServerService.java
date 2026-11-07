@@ -67,17 +67,20 @@ public class ServerService {
     private final JdbcTemplate jdbc;
     private final DomainService domains;
     private final ServerSsh ssh;
+    private final ca.nordencapital.masterdb.servers.ssh.SshIdentityService identity;
     private final ActivityLog activity;
     private final Clock clock;
     private final TransactionTemplate tx;
     private final boolean allowPrivateIps;
 
-    public ServerService(JdbcTemplate jdbc, DomainService domains, ServerSsh ssh, ActivityLog activity, Clock clock,
+    public ServerService(JdbcTemplate jdbc, DomainService domains, ServerSsh ssh,
+            ca.nordencapital.masterdb.servers.ssh.SshIdentityService identity, ActivityLog activity, Clock clock,
             PlatformTransactionManager transactions,
             @Value("${app.servers.allow-private-ips:false}") boolean allowPrivateIps) {
         this.jdbc = jdbc;
         this.domains = domains;
         this.ssh = ssh;
+        this.identity = identity;
         this.activity = activity;
         this.clock = clock;
         this.tx = new TransactionTemplate(transactions);
@@ -400,14 +403,64 @@ public class ServerService {
         return login(caller, find(publicId));
     }
 
-    /** First use: trusts the key the server showed, then tests the login. The fingerprint must be the one shown. */
-    public ConnectResult trust(AuthPrincipal caller, UUID publicId, String fingerprint) {
+    /**
+     * First use: trusts the key the server showed, then tests the login. The
+     * fingerprint must be the one shown. With {@code password}, MasterDB first
+     * logs in once with it to add its own key (see {@link #installKey}).
+     */
+    public ConnectResult trust(AuthPrincipal caller, UUID publicId, String fingerprint, String password) {
         Server s = find(publicId);
         if (s.pinnedKey() != null) {
             throw new ConflictException("This server already has a trusted host key. A changed key can only be "
                     + "accepted by the Owner.");
         }
         pin(caller, s, fingerprint, ActivityAction.SERVER_HOST_KEY_TRUSTED);
+        if (password != null && !password.isEmpty()) {
+            return installKey(caller, publicId, password);
+        }
+        return login(caller, find(publicId));
+    }
+
+    public ConnectResult trust(AuthPrincipal caller, UUID publicId, String fingerprint) {
+        return trust(caller, publicId, fingerprint, null);
+    }
+
+    /**
+     * Puts MasterDB's public key on the server using the login user's
+     * password, once, like the old app's password login: only after the host
+     * key is trusted, so the password can only reach that exact server. The
+     * password is used for this one login and is never stored or logged.
+     * Then the normal key login is tested.
+     */
+    public ConnectResult installKey(AuthPrincipal caller, UUID publicId, String password) {
+        if (password == null || password.isEmpty() || password.length() > 1024) {
+            throw BadRequestException.validation("password", "is required");
+        }
+        Server s = find(publicId);
+        if (s.pinnedKey() == null) {
+            throw new ServerNotReadyException("Press Connect and trust the host key first, so the password can only "
+                    + "go to this server.");
+        }
+        String command = identity.installCommand() + " && (command -v restorecon >/dev/null 2>&1 && restorecon -R "
+                + "~/.ssh || true) && echo MASTERDB_KEY_ADDED";
+        try {
+            Result r = ssh.runWithPassword(s, password, command, Duration.ofSeconds(30));
+            if (r.exitCode() != 0 || !r.output().contains("MASTERDB_KEY_ADDED")) {
+                return saveOutcome(caller, s, ConnectionStatus.AUTH_FAILED, "Logged in with the password, but "
+                        + "adding the key failed (exit " + r.exitCode() + "). Add it with the command instead.", null);
+            }
+        } catch (SshFailure f) {
+            if (f.kind() == SshFailure.Kind.HOST_KEY_CHANGED) {
+                return new ConnectResult("KEY_CHANGED", f.getMessage(), find(publicId).item());
+            }
+            ConnectionStatus status = f.kind() == SshFailure.Kind.AUTH_REFUSED ? ConnectionStatus.AUTH_FAILED
+                    : ConnectionStatus.UNREACHABLE;
+            return saveOutcome(caller, s, status, f.getMessage(), null);
+        }
+        tx.executeWithoutResult(t -> activity.record(ActivityAction.SERVER_KEY_INSTALLED, Party.of(caller), party(s),
+                Map.of("user", s.item().sshUser(), "method", "password, used once")));
+        log.info("ssh key added to server {} with a one-time password login by {}", s.item().publicId(),
+                caller.userPublicId());
         return login(caller, find(publicId));
     }
 

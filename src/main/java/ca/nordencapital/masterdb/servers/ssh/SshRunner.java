@@ -24,6 +24,14 @@ public interface SshRunner {
      */
     Result exec(Target target, String command, byte[] stdin, Duration timeout, LineSink sink);
 
+    /**
+     * Like {@link #exec} but logs in with a password instead of MasterDB's key:
+     * only to put MasterDB's key on a new server. The same strict host-key
+     * check comes first, so the password is never sent to another machine.
+     * The password is not kept or logged.
+     */
+    Result execWithPassword(Target target, String password, String command, Duration timeout);
+
     record Target(String host, int port, String user, String pinnedKey) {
     }
 

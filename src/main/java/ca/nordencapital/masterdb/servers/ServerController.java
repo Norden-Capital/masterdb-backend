@@ -62,6 +62,21 @@ public class ServerController {
     public record FingerprintRequest(@NotBlank @Size(max = 100) String fingerprint) {
     }
 
+    /** Trust, optionally with the login user's password (used once to add MasterDB's key, never stored). */
+    public record TrustRequest(@NotBlank @Size(max = 100) String fingerprint, @Size(max = 1024) String password) {
+        @Override
+        public String toString() {
+            return "TrustRequest[fingerprint=" + fingerprint + "]";
+        }
+    }
+
+    public record PasswordRequest(@NotBlank @Size(max = 1024) String password) {
+        @Override
+        public String toString() {
+            return "PasswordRequest[hidden]";
+        }
+    }
+
     public record IdentityRequest(@Size(max = 300) String heloHost, @Size(max = 300) String mailFrom) {
     }
 
@@ -140,12 +155,23 @@ public class ServerController {
     }
 
     @Operation(summary = "Trust the host key (first use)", description = "Send the fingerprint that was shown. "
-            + "409 if a key is already trusted or the fingerprint differs.")
+            + "Optional `password` of the SSH user: MasterDB then logs in once with it, only to add its own key "
+            + "(never stored, never logged). 409 if a key is already trusted or the fingerprint differs.")
     @RequiresPermission(module = Module.SERVERS, action = Action.CREATE)
     @PostMapping("/{id}/host-key/trust")
     public ConnectResult trust(@AuthenticationPrincipal AuthPrincipal caller, @PathVariable UUID id,
-            @Validated @RequestBody FingerprintRequest body) {
-        return service.trust(caller, id, body.fingerprint());
+            @Validated @RequestBody TrustRequest body) {
+        return service.trust(caller, id, body.fingerprint(), body.password());
+    }
+
+    @Operation(summary = "Add MasterDB's key with the password", description = "For a server whose host key is "
+            + "trusted but that refuses MasterDB's key: logs in once with the SSH user's password, adds the key to "
+            + "authorized_keys, then tests the key login. The password is never stored or logged.")
+    @RequiresPermission(module = Module.SERVERS, action = Action.CREATE)
+    @PostMapping("/{id}/install-key")
+    public ConnectResult installKey(@AuthenticationPrincipal AuthPrincipal caller, @PathVariable UUID id,
+            @Validated @RequestBody PasswordRequest body) {
+        return service.installKey(caller, id, body.password());
     }
 
     @Operation(summary = "Accept a changed host key (Owner only)", description = "Only while the server is "

@@ -57,6 +57,8 @@ public final class FakeSshServer implements AutoCloseable {
     private final List<Exchange> exchanges = new CopyOnWriteArrayList<>();
     private final List<String> logins = new CopyOnWriteArrayList<>();
     private final List<Rule> rules = new CopyOnWriteArrayList<>();
+    private final List<Rule> effects = new CopyOnWriteArrayList<>();
+    private volatile String password;
 
     public FakeSshServer(int port) {
         newHostKey();
@@ -64,7 +66,11 @@ public final class FakeSshServer implements AutoCloseable {
         server.setHost("127.0.0.1");
         server.setPort(port);
         server.setKeyPairProvider(session -> List.of(hostKey));
-        server.setPasswordAuthenticator(null);
+        server.setPasswordAuthenticator((user, pw, session) -> {
+            logins.add(user);
+            String expected = password;
+            return expected != null && expected.equals(pw);
+        });
         server.setKeyboardInteractiveAuthenticator(null);
         server.setPublickeyAuthenticator((user, key, session) -> {
             logins.add(user);
@@ -116,6 +122,20 @@ public final class FakeSshServer implements AutoCloseable {
         return this;
     }
 
+    /** Also accepts this password (any user); null = passwords refused. */
+    public void password(String value) {
+        this.password = value;
+    }
+
+    /** Runs {@code action} when a command with this marker arrives (e.g. "the key was added"). */
+    public FakeSshServer whenRun(String marker, Runnable action) {
+        effects.add(new Rule(e -> e.has(marker), new Reply(0, "", null)));
+        effectActions.add(action);
+        return this;
+    }
+
+    private final List<Runnable> effectActions = new CopyOnWriteArrayList<>();
+
     public List<Exchange> exchanges() {
         return List.copyOf(exchanges);
     }
@@ -129,6 +149,9 @@ public final class FakeSshServer implements AutoCloseable {
         exchanges.clear();
         logins.clear();
         rules.clear();
+        effects.clear();
+        effectActions.clear();
+        password = null;
         authorized.clear();
         newHostKey();
     }
@@ -176,6 +199,11 @@ public final class FakeSshServer implements AutoCloseable {
                 String stdin = new String(getInputStream().readAllBytes(), StandardCharsets.UTF_8);
                 Exchange e = new Exchange(getServerSession().getUsername(), getCommand(), stdin);
                 exchanges.add(e);
+                for (int i = 0; i < effects.size(); i++) {
+                    if (effects.get(i).when().test(e)) {
+                        effectActions.get(i).run();
+                    }
+                }
                 Reply reply = new Reply(0, "", null);
                 for (Rule r : new ArrayList<>(rules)) {
                     if (r.when().test(e)) {

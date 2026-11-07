@@ -79,6 +79,11 @@ public class SshIdentityService {
         }
     }
 
+    /** The install command for MasterDB's key (made on first use). */
+    public String installCommand() {
+        return publicIdentity().installCommand();
+    }
+
     /**
      * A one-line command for the VPS: adds the key to the login user's
      * authorized_keys once (running it again changes nothing).

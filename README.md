@@ -251,6 +251,13 @@ one-line command that appends it to `~/.ssh/authorized_keys` on the VPS (idempot
 SSH client uses only that key: no passwords, no `~/.ssh/config`, no keys or known_hosts from
 the backend's home folder.
 
+**Adding the key with the password, once.** Like the old app, the SSH user's password can be
+typed instead of running the command: with Trust (or later with `install-key`), MasterDB logs
+in **once** with it, appends its public key to `authorized_keys` (plus `restorecon` on SELinux
+systems), then tests the key login. Only after the host key is trusted, so the password can only
+reach that server. The password is never stored, logged or echoed (activity
+`SERVER_KEY_INSTALLED` says only "password, used once"); every later login uses the key.
+
 **Host keys: trust on first use, then strict.** "Connect" opens a connection only far enough
 to read the host key (no login). With no trusted key yet the server becomes `KEY_PENDING`
 and the fingerprint is shown once; "Trust" (with that exact fingerprint) pins the full key
@@ -268,7 +275,8 @@ whether the user is root or has passwordless sudo (needed for the MTA).
 | `PUT /api/v1/servers/{id}` (same body) | SERVERS:EDIT |
 | `DELETE /api/v1/servers/{id}` (MasterDB only; nothing changes on the VPS) | SERVERS:DELETE |
 | `POST …/{id}/connect` → `{outcome, message, server}`: KEY_PENDING, CONNECTED, AUTH_FAILED, UNREACHABLE or KEY_CHANGED (always 200) | SERVERS:RUN |
-| `POST …/{id}/host-key/trust` `{fingerprint}` (first use only; 409 otherwise) | SERVERS:CREATE |
+| `POST …/{id}/host-key/trust` `{fingerprint, password?}` (first use only; 409 otherwise) | SERVERS:CREATE |
+| `POST …/{id}/install-key` `{password}` (host key already trusted; adds MasterDB's key with a one-time password login) | SERVERS:CREATE |
 | `POST …/{id}/host-key/replace` `{fingerprint}` (**Owner only**, only while KEY_CHANGED) | SERVERS:EDIT + Owner |
 
 - Only public IPv4 addresses (`app.servers.allow-private-ips`, true only in the `local`

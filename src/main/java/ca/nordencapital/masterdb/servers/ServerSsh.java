@@ -65,6 +65,19 @@ public class ServerSsh {
         }
     }
 
+    /** Logs in once with a password (never stored) to run one command: putting MasterDB's key on the server. */
+    public Result runWithPassword(Server s, String password, String command, Duration timeout) {
+        ready(s);
+        try {
+            return runner.execWithPassword(target(s), password, command, timeout);
+        } catch (SshFailure f) {
+            if (f.kind() == SshFailure.Kind.HOST_KEY_CHANGED) {
+                markChanged(s, f.presented());
+            }
+            throw f;
+        }
+    }
+
     /** Runs a root script: {@code bash -s}, through {@code sudo -n} when the login user isn't root. */
     public Result runScript(Server s, String script, Duration timeout, LineSink sink) {
         return run(s, rootShell(s), script.getBytes(StandardCharsets.UTF_8), timeout, sink);

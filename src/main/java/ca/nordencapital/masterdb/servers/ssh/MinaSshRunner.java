@@ -1,7 +1,9 @@
 package ca.nordencapital.masterdb.servers.ssh;
 
 import org.apache.sshd.client.SshClient;
+import org.apache.sshd.client.auth.keyboard.UserAuthKeyboardInteractiveFactory;
 import org.apache.sshd.client.auth.password.PasswordIdentityProvider;
+import org.apache.sshd.client.auth.password.UserAuthPasswordFactory;
 import org.apache.sshd.client.auth.pubkey.UserAuthPublicKeyFactory;
 import org.apache.sshd.client.channel.ChannelExec;
 import org.apache.sshd.client.channel.ClientChannelEvent;
@@ -41,7 +43,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * carries the pinned key in its own connection context, so the host-key
  * check is decided per connection with no shared state.
  *
- * <p>The client is locked down: public-key auth only, no ~/.ssh/config, no
+ * <p>The client is locked down: MasterDB's key (or a one-time password for adding it), no ~/.ssh/config, no
  * keys or known_hosts from the backend's home folder. MasterDB's key comes
  * from {@link SshIdentityService} for each login.
  */
@@ -64,7 +66,10 @@ public class MinaSshRunner implements SshRunner, DisposableBean {
         client.setHostConfigEntryResolver(HostConfigEntryResolver.EMPTY);
         client.setKeyIdentityProvider(KeyIdentityProvider.EMPTY_KEYS_PROVIDER);
         client.setPasswordIdentityProvider(PasswordIdentityProvider.EMPTY_PASSWORDS_PROVIDER);
-        client.setUserAuthFactories(List.of(UserAuthPublicKeyFactory.INSTANCE));
+        // Password methods only ever run in a session that added a password (execWithPassword);
+        // the client has no password of its own.
+        client.setUserAuthFactories(List.of(UserAuthPublicKeyFactory.INSTANCE, UserAuthPasswordFactory.INSTANCE,
+                UserAuthKeyboardInteractiveFactory.INSTANCE));
         client.setServerKeyVerifier((session, address, key) -> {
             AttributeRepository ctx = session.getConnectionContext();
             if (ctx == null) {
@@ -108,13 +113,36 @@ public class MinaSshRunner implements SshRunner, DisposableBean {
 
     @Override
     public Result exec(Target target, String command, byte[] stdin, Duration timeout, LineSink sink) {
+        KeyPair key = identity.keyPair();
+        return session(target, timeout, session -> session.addPublicKeyIdentity(key), "The server refused "
+                + "MasterDB's SSH key for user " + target.user() + ". Add the public key (Add VPS server page) to "
+                + "that user's ~/.ssh/authorized_keys, or let MasterDB add it with the password.",
+                session -> run(session, command, stdin, timeout, sink));
+    }
+
+    @Override
+    public Result execWithPassword(Target target, String password, String command, Duration timeout) {
+        return session(target, timeout, session -> {
+            session.addPasswordIdentity(password);
+        }, "The server refused the password for user " + target.user() + ". Check it and try again.",
+                session -> run(session, command, null, timeout, null));
+    }
+
+    private interface SessionStep<T> {
+        T apply(ClientSession session) throws IOException;
+    }
+
+    private interface AuthSetup {
+        void apply(ClientSession session) throws IOException;
+    }
+
+    private <T> T session(Target target, Duration timeout, AuthSetup auth, String refused, SessionStep<T> work) {
         AtomicReference<PublicKey> seen = new AtomicReference<>();
         AttributeRepository ctx = AttributeRepository.ofAttributesMap(Map.of(SEEN, seen, EXPECTED,
                 target.pinnedKey()));
-        KeyPair key = identity.keyPair();
         Duration connectTimeout = Duration.ofSeconds(Math.min(20, Math.max(5, timeout.toSeconds())));
         try (ClientSession session = connect(target.user(), target.host(), target.port(), ctx, connectTimeout)) {
-            session.addPublicKeyIdentity(key);
+            auth.apply(session);
             try {
                 session.auth().verify(AUTH_TIMEOUT);
             } catch (IOException e) {
@@ -127,11 +155,9 @@ public class MinaSshRunner implements SshRunner, DisposableBean {
                 if (shown == null) {
                     throw failure(e, target.host(), target.port());
                 }
-                throw new SshFailure(SshFailure.Kind.AUTH_REFUSED, "The server refused MasterDB's SSH key for user "
-                        + target.user() + ". Add the public key (Add VPS server page) to that user's "
-                        + "~/.ssh/authorized_keys.");
+                throw new SshFailure(SshFailure.Kind.AUTH_REFUSED, refused);
             }
-            return run(session, command, stdin, timeout, sink);
+            return work.apply(session);
         } catch (SshFailure f) {
             throw f;
         } catch (IOException e) {
