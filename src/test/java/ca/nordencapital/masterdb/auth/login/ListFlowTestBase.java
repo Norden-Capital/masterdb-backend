@@ -1,22 +1,40 @@
 package ca.nordencapital.masterdb.auth.login;
 
+import ca.nordencapital.testsupport.FakeDriveServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.context.annotation.Import;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Shared set-up of the List management tests: the DNS test users (Owner,
  * member without permissions) and helpers that put a ready list straight into
  * the database. Only made-up addresses at example.invalid / *.test.
  */
+@Import(FakeDriveServer.Config.class)
 abstract class ListFlowTestBase extends DnsFlowTestBase {
+
+    static final FakeDriveServer DRIVE = FakeDriveServer.SHARED;
+    static final int CHUNK = 64 * 1024;
+    private final HttpClient raw = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
     @BeforeEach
     void setUpLists() {
         cleanLists();
+        DRIVE.reset();
     }
 
     @AfterEach
@@ -87,5 +105,63 @@ abstract class ListFlowTestBase extends DnsFlowTestBase {
             b.append('"').append(v.replace("\\", "\\\\").replace("\"", "\\\"")).append('"');
         }
         return b.append(']').toString();
+    }
+
+    // ---- upload helpers ----------------------------------------------------------
+
+    /** POST /api/v1/lists for a file; {@code extra} = more JSON fields (",\"splitBy\":2"). */
+    HttpResponse<String> create(String name, String fileName, long size, String extra) throws Exception {
+        return post("/api/v1/lists", "{\"name\":\"" + name + "\",\"source\":\"FILE\",\"fileName\":\"" + fileName
+                + "\",\"fileSize\":" + size + extra + "}");
+    }
+
+    /** PUT one chunk (raw bytes) as the Owner. */
+    HttpResponse<String> chunk(String id, long offset, byte[] bytes) throws Exception {
+        return chunk(owner, id, offset, bytes);
+    }
+
+    HttpResponse<String> chunk(String token, String id, long offset, byte[] bytes) throws Exception {
+        return raw.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/lists/" + id
+                        + "/upload?offset=" + offset)).header("Cookie", "md_session=" + token)
+                .header("Content-Type", "application/octet-stream")
+                .PUT(HttpRequest.BodyPublishers.ofByteArray(bytes)).build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    /** Creates the list and sends the whole file in 64 KB chunks; returns its id (status MAPPING). */
+    String upload(String name, String content, String extra) throws Exception {
+        byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+        HttpResponse<String> created = create(name, name + ".csv", bytes.length, extra);
+        assertThat(created.statusCode()).as(created.body()).isEqualTo(201);
+        String id = id(created.body());
+        for (int off = 0; off < bytes.length; off += CHUNK) {
+            HttpResponse<String> res = chunk(id, off, Arrays.copyOfRange(bytes, off, Math.min(bytes.length,
+                    off + CHUNK)));
+            assertThat(res.statusCode()).as(res.body()).isEqualTo(200);
+        }
+        return id;
+    }
+
+    /** Starts the import with this body (null = the guess) and waits for READY or FAILED. */
+    String importAndWait(String id, String body) throws Exception {
+        HttpResponse<String> started = post("/api/v1/lists/" + id + "/import", body);
+        assertThat(started.statusCode()).as(started.body()).isEqualTo(200);
+        return waitFor(id, "\"status\":\"READY\"", "\"status\":\"FAILED\"");
+    }
+
+    /** Polls the list until its body contains one of the texts (10 s at most). */
+    String waitFor(String id, String... texts) throws Exception {
+        Instant end = Instant.now().plus(Duration.ofSeconds(15));
+        String body = get("/api/v1/lists/" + id).body();
+        while (Arrays.stream(texts).noneMatch(body::contains) && Instant.now().isBefore(end)) {
+            Thread.sleep(50);
+            body = get("/api/v1/lists/" + id).body();
+        }
+        assertThat(body).containsAnyOf(texts);
+        return body;
+    }
+
+    List<String> emails(String id) {
+        return jdbc.queryForList("select m.email from list_members m join lists l on l.id = m.list_id where "
+                + "l.public_id = ?::uuid order by m.seq", String.class, id);
     }
 }

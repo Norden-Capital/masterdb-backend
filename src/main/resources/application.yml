@@ -194,6 +194,24 @@ app:
     check-retention: 90d
     check-prune-cron: "0 50 3 * * *"
 
+  # List management (lists/). Files from the PC arrive in chunks of at most
+  # chunk-max (under Vercel's 4.5 MB body limit) and wait in upload-dir until
+  # their import is done (on the server: the Docker volume list_uploads, so a
+  # restart keeps them). An upload is refused when the disk would have less
+  # than min-free-disk left. Imports run one at a time, import-chunk rows per
+  # transaction. Unfinished uploads expire after upload-expiry.
+  lists:
+    upload-dir: ${APP_LISTS_UPLOAD_DIR:${java.io.tmpdir}/masterdb-uploads}
+    max-file-size: ${APP_LISTS_MAX_FILE_SIZE:2GB}
+    min-free-disk: ${APP_LISTS_MIN_FREE_DISK:2GB}
+    chunk-max: 4MB
+    import-chunk: 50000
+    upload-expiry: 48h
+    cleanup-cron: "0 20 * * * *"
+    drive:
+      # Until Google's answer starts; a download that stops sending for 2 minutes is dropped.
+      timeout: 60s
+
   # Browsers may call this API only from these sites (CorsConfig).
   # Comma-separated. The `local` profile adds http://localhost:3000.
   cors:

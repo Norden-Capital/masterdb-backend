@@ -72,13 +72,21 @@ services:
       - BOOTSTRAP_OWNER_PASSWORD=${BOOTSTRAP_OWNER_PASSWORD:-}
       - BOOTSTRAP_OWNER_NAME=${BOOTSTRAP_OWNER_NAME:-}
 
+      # List files wait here (uploaded in chunks, or downloaded from Drive)
+      # until their import is done, on the volume below so a restart or a
+      # deploy keeps them. Each is deleted after its import.
+      - APP_LISTS_UPLOAD_DIR=/var/lib/masterdb/uploads
+
       # SPRING_JPA_HIBERNATE_DDL_AUTO is deliberately absent. Environment
       # variables override application.yml, so setting it here would put
       # Hibernate back in charge of the schema and undo `ddl-auto: validate`,
       # which exists so Flyway owns migrations alone.
+    volumes:
+      - list_uploads:/var/lib/masterdb/uploads
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   postgres_data:
+  list_uploads:

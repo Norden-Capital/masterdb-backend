@@ -106,7 +106,7 @@
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>
-			<scope>runtime</scope>
+			<!-- compile, not runtime: list imports load rows with COPY (PGConnection's CopyManager). -->
 		</dependency>
 		<dependency>
 			<groupId>org.projectlombok</groupId>

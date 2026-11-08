@@ -60,6 +60,10 @@ public enum ErrorCode {
     SSH_FAILED,
     /** MTA: an install is already running on this server. */
     MTA_INSTALL_RUNNING,
+    /** Lists: a chunk does not start where the upload stands; {@code received} says where to go on from. */
+    UPLOAD_OFFSET_MISMATCH,
+    /** Lists: the server's disk is too full for this file right now. */
+    STORAGE_FULL,
     METHOD_NOT_ALLOWED,
     NOT_ACCEPTABLE,
     CONFLICT,

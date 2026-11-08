@@ -479,6 +479,59 @@ with a big OFFSET), `(list_id, part_no, seq)`, `(contact_id, list_id)`; `contact
 Activity: `LIST_CREATED`, `LIST_UPLOADED`, `LIST_IMPORT_STARTED`, `LIST_IMPORTED`, `LIST_IMPORT_FAILED`,
 `LIST_UPDATED` (before → after), `LIST_DELETED`, `LIST_EXPORTED`.
 
+**Add list (job 2, `lists/imports/`).** The browser never sends a whole file in one request: the
+website's proxy runs on Vercel, which caps a request body at about 4.5 MB.
+
+1. `POST /api/v1/lists` with the details and either `source: FILE` + `fileName` (.txt or .csv; the
+   old app took no .zip either) + `fileSize` (at most `APP_LISTS_MAX_FILE_SIZE`, 2 GB), or
+   `source: DRIVE` + `driveUrl`. The list starts as UPLOADING (or DOWNLOADING).
+2. `PUT /api/v1/lists/{id}/upload?offset=N` with the bytes (`application/octet-stream`, at most
+   `app.lists.chunk-max` = 4 MB; the website sends 3 MB). The server writes from `received` on
+   (a repeated chunk changes nothing, an overlapping one is written from where the file stands, one
+   past `received` is 409 `UPLOAD_OFFSET_MISMATCH` with `received`), syncs to disk, then saves
+   `received`: the progress bar shows only bytes the server has. `GET …/upload` says where to go on
+   from after a break (same file chosen again).
+3. With the whole file there the list is MAPPING: `GET …/preview` gives the first rows and the
+   guess (separator `, ; TAB |` or none, header or not, the email column: a header named
+   email/e-mail/courriel, else the column with the most addresses), `POST …/import`
+   `{emailColumn, hasHeader}` queues it.
+4. `ListImporter` (one import at a time, state in the DB): streams the file (UTF-8, BOM dropped,
+   RFC 4180 quotes, a record over 1,000,000 characters stops it with the line number), checks each
+   address with the validation syntax rules, and COPYs the valid rows into the UNLOGGED
+   `list_import_rows`; then, 50,000 rows per transaction, adds contacts (`on conflict do nothing`)
+   and members in file order, dropping repeats when "remove duplicates" is yes (case ignored,
+   first one kept), numbering them and giving each its part. Progress: bytes read, then rows saved.
+   After a restart an interrupted import starts again from the file (its members are cleared first).
+   The file is deleted once the list is READY or FAILED.
+
+**Import report** (on the list): `totalLines` (non-blank lines, header not counted), `imported`,
+`invalid` (no valid address in the column), `duplicates` (repeats inside the file; removed or kept
+as `duplicatesRemoved` says), `inOtherLists` (addresses of this list already in another list,
+counted, never removed).
+
+**Google Drive** (`DriveLink`, `DriveDownloader`): the link must be https on drive.google.com or
+docs.google.com (a file, `open?id=`, a Google Sheet → CSV export, a Google Doc → text export;
+folders and slides are refused). The server then requests only HTTPS addresses on
+drive.google.com, docs.google.com, drive.usercontent.google.com or *.googleusercontent.com, port
+443: every redirect (at most 8) is checked before it is followed (SSRF guard). Google's "can't scan
+this file for viruses" page is answered like its "Download anyway" button. A sign-in redirect, 401
+or 403 = "not shared as Anyone with the link"; 404, quota (429) and too-big files (over the cap,
+checked on the length and while streaming) end in FAILED with a sentence; a connection silent for
+2 minutes is dropped. After a restart a download starts again. Tests use `FakeDriveServer`.
+
+| Call | Permission |
+| --- | --- |
+| `POST /api/v1/lists` → 201 / `GET`, `PUT …/{id}/upload` / `GET …/{id}/preview` / `POST …/{id}/import` | LISTS:CREATE |
+
+| Variable | Default |
+| --- | --- |
+| `APP_LISTS_UPLOAD_DIR` | `<tmp>/masterdb-uploads`; on the server `/var/lib/masterdb/uploads`, the Docker volume `list_uploads` |
+| `APP_LISTS_MAX_FILE_SIZE` | `2GB` per list file |
+| `APP_LISTS_MIN_FREE_DISK` | `2GB`: an upload that would leave less free disk is refused (409 `STORAGE_FULL`) |
+
+Unfinished uploads expire after 48 h (column choices never made after 6 days): FAILED, file
+deleted (hourly, `app.lists.cleanup-cron`).
+
 #### Dashboard (M2.4)
 
 `GET /api/v1/dashboard/summary` (DASHBOARD:VIEW): counted from the database at the call,

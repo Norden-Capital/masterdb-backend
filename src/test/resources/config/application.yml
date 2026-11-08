@@ -24,3 +24,10 @@ app:
     gap-scale: 0
     smtp-timeout: 3s
     worker-idle: 100ms
+  # List uploads in a temp folder; small import chunks so tests cross chunk borders.
+  lists:
+    upload-dir: ${java.io.tmpdir}/masterdb-test-uploads
+    min-free-disk: 1MB
+    max-file-size: 1MB
+    chunk-max: 64KB
+    import-chunk: 3

@@ -20,6 +20,9 @@ WORKDIR /app
 # Non-root user for security.
 RUN addgroup -S spring && adduser -S spring -G spring
 
+# Upload folder for list files (a named volume on the server takes its owner from here).
+RUN mkdir -p /var/lib/masterdb/uploads && chown spring:spring /var/lib/masterdb/uploads
+
 COPY --from=builder /app/target/*.jar app.jar
 
 USER spring

@@ -40,7 +40,7 @@ public record ListRow(long id, UUID publicId, String name, String esp, String co
 
     static final JsonMapper JSON = JsonMapper.builder().build();
 
-    static final RowMapper<ListRow> MAPPER = ListRow::map;
+    public static final RowMapper<ListRow> MAPPER = ListRow::map;
 
     static ListRow map(ResultSet rs, int n) throws SQLException {
         return new ListRow(rs.getLong("id"), rs.getObject("public_id", UUID.class), rs.getString("name"),
@@ -73,7 +73,7 @@ public record ListRow(long id, UUID publicId, String name, String esp, String co
         return JSON.readValue(json, new TypeReference<LinkedHashMap<String, Integer>>() { });
     }
 
-    static String json(Object value) {
+    public static String json(Object value) {
         return value == null ? null : JSON.writeValueAsString(value);
     }
 
