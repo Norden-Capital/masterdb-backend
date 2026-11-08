@@ -124,14 +124,14 @@ public class ResultsController {
     }
 
     /** A file name from the job name: letters, digits and dashes. */
-    static String slug(String name) {
+    public static String slug(String name) {
         String s = name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("(^-+|-+$)", "");
         s = s.length() > 60 ? s.substring(0, 60) : s;
         return s.isEmpty() ? "validation" : s;
     }
 
     /** One CSV cell, quoted; a leading = + - @ (or tab / CR) defused so a spreadsheet never runs it. */
-    static String csv(String value) {
+    public static String csv(String value) {
         if (value == null) {
             return "";
         }

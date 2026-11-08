@@ -202,6 +202,7 @@ Per-user grants on **module × action**, a permission is written `MODULE:ACTION`
 | `BACKUPS` | VIEW, RUN, DELETE |
 | `SETTINGS` | VIEW, EDIT |
 | `DNS` | VIEW, CREATE, EDIT, DELETE, RUN (`V8__dns_namecheap_account.sql`; nobody gets it automatically) |
+| `LISTS` | VIEW, CREATE, EDIT, DELETE, EXPORT, RUN (`V19__lists.sql`; whoever had a `CONTACTS` action got the same `LISTS` action, since the Lists page used the Contacts permission before) |
 
 - **The Owner holds every permission** and needs no rows.
 - Any action on a module implies its VIEW (saved with it).
@@ -450,6 +451,33 @@ Single checks are kept 90 days (`app.validation.check-retention`, pruned daily 0
 Errors: 400 for a malformed address, 409 `SERVER_NOT_READY`, 424 `SSH_FAILED`. Tests use
 `testsupport/FakeSmtpServer` (127.0.0.1) reached through the fake SSH server: no test talks to a
 real mail server.
+
+#### List management
+
+`lists/` (V19 on). A **list** is one uploaded file with the old app's fields: name, ESP, country,
+vertical, remove duplicates (yes/no) and split by N. Tables:
+
+| Table | What |
+| --- | --- |
+| `lists` | the details, the source (FILE from the PC, DRIVE from a Google Drive link), status, upload and import progress, the import report, the column mapping, the latest validation counts |
+| `contacts` | one row per address MasterDB holds, **normalised** (trimmed, lowercased, domain in ASCII): the same address in many lists is one contact. Deleting a list keeps its contacts (they are the master database) |
+| `list_members` | one address of a list in file order (`seq` 1..records), its part, its contact, the address as written and the file row's **own columns** (jsonb array, in the order of `lists.columns`) so exports can give them back |
+| `list_parts` | "split by N": parts of N members (a list that is not split has one part); each part can be validated on its own |
+| `list_import_rows` | UNLOGGED staging for an import (see below) |
+
+Indexes for 1M+ members: `(list_id, seq)` unique (a page of addresses is read by its numbers, never
+with a big OFFSET), `(list_id, part_no, seq)`, `(contact_id, list_id)`; `contacts.email` unique.
+
+| Call | Permission |
+| --- | --- |
+| `GET /api/v1/lists` (`q` name, `esp`, `country`, `vertical`, `source`, `status`; sort name, records, esp, country, vertical, parts, createdAt, status, source) / `GET …/facets` | LISTS:VIEW |
+| `GET /api/v1/lists/{id}` → `{list, parts}` (report, progress, mapping, validation) / `GET …/{id}/emails?part=&q=` | LISTS:VIEW |
+| `PUT /api/v1/lists/{id}` `{name, esp, country, vertical}` (remove duplicates and split are fixed at import) | LISTS:EDIT |
+| `DELETE /api/v1/lists/{id}` (409 while a validation job runs on it) | LISTS:DELETE |
+| `GET /api/v1/lists/{id}/export?part=` → CSV with the file's own columns (UTF-8 BOM, `= + - @` defused), streamed | LISTS:EXPORT |
+
+Activity: `LIST_CREATED`, `LIST_UPLOADED`, `LIST_IMPORT_STARTED`, `LIST_IMPORTED`, `LIST_IMPORT_FAILED`,
+`LIST_UPDATED` (before → after), `LIST_DELETED`, `LIST_EXPORTED`.
 
 #### Dashboard (M2.4)
 

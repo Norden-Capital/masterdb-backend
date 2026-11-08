@@ -161,7 +161,7 @@ class DashboardFlowTest {
                 .contains("\"key\":\"DASHBOARD\"");
     }
 
-    /** V7 gives everybody who had an account before it DASHBOARD:VIEW (not the Owner, who needs no row). */
+    /** V7 gives everybody who had an account before it DASHBOARD:VIEW (not the Owner, who needs no row); V19 copies CONTACTS grants to LISTS. */
     @Test
     void theMigrationKeepsTheDashboardForExistingAccounts() {
         String schema = "m2_v7_check";
@@ -180,7 +180,8 @@ class DashboardFlowTest {
             assertThat(jdbc.queryForList("select u.email || ' ' || p.module || ':' || p.action from " + schema
                     + ".user_permissions p join " + schema + ".users u on u.id = p.user_id order by 1", String.class))
                     .containsExactly("a@example.com CONTACTS:VIEW", "a@example.com DASHBOARD:VIEW",
-                            "i@example.com DASHBOARD:VIEW");
+                            // V19: a Contacts action gives the same Lists action (Lists used Contacts until then).
+                            "a@example.com LISTS:VIEW", "i@example.com DASHBOARD:VIEW");
         } finally {
             flyway.load().clean();
             jdbc.execute("drop schema if exists " + schema + " cascade");

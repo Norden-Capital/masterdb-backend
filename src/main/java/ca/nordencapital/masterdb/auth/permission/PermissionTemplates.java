@@ -14,8 +14,8 @@ public final class PermissionTemplates {
     public record Template(String key, String label, String description, SortedSet<Permission> permissions) {
     }
 
-    private static final EnumSet<Module> DATA = EnumSet.of(Module.CONTACTS, Module.VALIDATION, Module.SEGMENTS,
-            Module.SUPPRESSION);
+    private static final EnumSet<Module> DATA = EnumSet.of(Module.CONTACTS, Module.LISTS, Module.VALIDATION,
+            Module.SEGMENTS, Module.SUPPRESSION);
 
     private PermissionTemplates() {
     }

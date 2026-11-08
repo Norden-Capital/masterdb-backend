@@ -30,7 +30,9 @@ public enum Module {
     BACKUPS("Backups", EnumSet.of(VIEW, RUN, DELETE)),
     SETTINGS("Settings", EnumSet.of(VIEW, EDIT)),
     /** Namecheap account, domains, DNS records and DNS health (V8). */
-    DNS("DNS management", EnumSet.of(VIEW, CREATE, EDIT, DELETE, RUN));
+    DNS("DNS management", EnumSet.of(VIEW, CREATE, EDIT, DELETE, RUN)),
+    /** Lists: upload (CREATE), edit details, delete, export members, validate a list (RUN, with VALIDATION:RUN) (V19). */
+    LISTS("Lists", EnumSet.of(VIEW, CREATE, EDIT, DELETE, EXPORT, RUN));
 
     private final String label;
     private final Set<Action> actions;
