@@ -3,7 +3,12 @@ package ca.nordencapital.masterdb.validation.bulk;
 import ca.nordencapital.masterdb.activity.ActivityAction;
 import ca.nordencapital.masterdb.activity.ActivityLog;
 import ca.nordencapital.masterdb.activity.ActivityLog.Party;
+import ca.nordencapital.masterdb.auth.permission.Action;
+import ca.nordencapital.masterdb.auth.permission.ForbiddenException;
+import ca.nordencapital.masterdb.auth.permission.Module;
 import ca.nordencapital.masterdb.auth.session.AuthPrincipal;
+import ca.nordencapital.masterdb.lists.ListRow;
+import ca.nordencapital.masterdb.lists.ListService;
 import ca.nordencapital.masterdb.servers.ServerService.Server;
 import ca.nordencapital.masterdb.validation.Category;
 import ca.nordencapital.masterdb.validation.ValidationServers;
@@ -49,10 +54,14 @@ public class BulkJobService {
     private final ActivityLog activity;
     private final Clock clock;
     private final TransactionTemplate tx;
+    private final ListService lists;
+    private final ListValidation summaries;
 
     public BulkJobService(JdbcTemplate jdbc, ValidationServers servers, BulkRunner runner, ActivityLog activity,
-            Clock clock, PlatformTransactionManager transactions) {
+            Clock clock, PlatformTransactionManager transactions, ListService lists, ListValidation summaries) {
         this.jdbc = jdbc;
+        this.lists = lists;
+        this.summaries = summaries;
         this.servers = servers;
         this.runner = runner;
         this.activity = activity;
@@ -60,25 +69,34 @@ public class BulkJobService {
         this.tx = new TransactionTemplate(transactions);
     }
 
-    public enum Status { RUNNING, STOPPED, COMPLETED }
+    /** PREPARING: a job on a list while its addresses are copied from the list. */
+    public enum Status { PREPARING, RUNNING, STOPPED, COMPLETED }
 
     /** One server of a job: how many it checked, and what it is doing now (only while the job runs). */
     public record JobServer(UUID publicId, String name, String ip, int checked, String state, String message) {
     }
 
+    /** The list (or part) a job came from; {@code publicId} null once the list was deleted. */
+    public record JobList(UUID publicId, String name, Integer part) {
+    }
+
     public record JobView(UUID publicId, String name, String source, Status status, int total, int pending,
             int checked, int valid, int bounce, int softBounce, int reject, int catchAll, int unknown, int duplicates,
             int invalid, int retries, String message, List<JobServer> servers, Integer perMinute, String startedBy,
-            Instant createdAt, Instant startedAt, Instant finishedAt) {
+            Instant createdAt, Instant startedAt, Instant finishedAt, JobList list) {
     }
 
-    public record CreateRequest(String name, String emails, List<UUID> serverIds) {
+    /** {@code emails} (a paste) or {@code listId} (+ optional {@code part}), not both. */
+    public record CreateRequest(String name, String emails, List<UUID> serverIds, UUID listId, Integer part) {
+        public CreateRequest(String name, String emails, List<UUID> serverIds) {
+            this(name, emails, serverIds, null, null);
+        }
     }
 
     record Job(long id, UUID publicId, String name, String source, Status status, int total, int pending, int valid,
             int bounce, int softBounce, int reject, int catchAll, int unknown, int duplicates, int invalid,
             int retries, String message, String actorLabel, Instant createdAt, Instant startedAt,
-            Instant finishedAt) {
+            Instant finishedAt, Long listId, Integer listPart) {
     }
 
     static final RowMapper<Job> JOB = (rs, n) -> new Job(rs.getLong("id"), rs.getObject("public_id", UUID.class),
@@ -87,7 +105,7 @@ public class BulkJobService {
             rs.getInt("reject"), rs.getInt("catch_all"), rs.getInt("unknown"), rs.getInt("duplicates"),
             rs.getInt("invalid"), rs.getInt("retries"), rs.getString("message"), rs.getString("actor_label"),
             ts(rs.getTimestamp("created_at")), ts(rs.getTimestamp("started_at")),
-            ts(rs.getTimestamp("finished_at")));
+            ts(rs.getTimestamp("finished_at")), (Long) rs.getObject("list_id"), (Integer) rs.getObject("list_part"));
 
     // ---- start -------------------------------------------------------------------
 
@@ -133,6 +151,12 @@ public class BulkJobService {
     }
 
     public JobView create(AuthPrincipal caller, CreateRequest req) {
+        if (req.listId() != null) {
+            return createFromList(caller, req);
+        }
+        if (req.part() != null) {
+            throw BadRequestException.validation("part", "a part needs a list");
+        }
         List<Server> chosen = chosenServers(req.serverIds());
         Parsed p = parse(req.emails());
         if (p.emails().isEmpty()) {
@@ -171,6 +195,57 @@ public class BulkJobService {
         return get(publicId);
     }
 
+    /**
+     * A job on a list (or one part): PREPARING while {@link BulkRunner#prepare}
+     * copies the addresses from the list inside the database, in chunks, each
+     * address once (repeats a list kept are counted as duplicates), in list
+     * order; then it runs. No size limit, nothing in memory.
+     */
+    private JobView createFromList(AuthPrincipal caller, CreateRequest req) {
+        if (!caller.can(Module.LISTS, Action.RUN)) {
+            throw new ForbiddenException("Validating a list needs the Lists run permission.");
+        }
+        if (req.emails() != null && !req.emails().isBlank()) {
+            throw BadRequestException.validation("emails", "paste addresses or choose a list, not both");
+        }
+        ListRow l = lists.find(req.listId());
+        if (l.status() != ListRow.Status.READY) {
+            throw new ConflictException("This list is not imported yet.");
+        }
+        Integer part = req.part();
+        if (part != null) {
+            lists.part(l, part);
+        }
+        List<Server> chosen = chosenServers(req.serverIds());
+        String name = req.name() == null || req.name().isBlank()
+                ? cut(l.name(), part == null ? 120 : 105) + (part == null ? "" : " · part " + part) : req.name().trim();
+        if (name.length() > 120) {
+            throw BadRequestException.validation("name", "is longer than 120 characters");
+        }
+        Timestamp t = Timestamp.from(clock.instant());
+        UUID publicId = UUID.randomUUID();
+        long jobId = tx.execute(s -> {
+            Long id = jdbc.queryForObject("insert into validation_jobs (public_id, name, source, status, total, "
+                            + "pending, list_id, list_part, message, actor_public_id, actor_label, created_at, "
+                            + "started_at, updated_at) values (?,?,'LIST','PREPARING',0,0,?,?,?,?,?,?,?,?) returning id",
+                    Long.class, publicId, name, l.id(), part, "Copying the list's addresses.", caller.userPublicId(),
+                    cut(caller.email(), 254), t, t, t);
+            saveServers(id, chosen);
+            Integer members = part == null ? Integer.valueOf(l.records())
+                    : jdbc.queryForObject("select records from list_parts where list_id = ? and part_no = ?",
+                            Integer.class, l.id(), part);
+            Map<String, Object> d = details(publicId, members == null ? 0 : members, chosen);
+            d.put("list", l.publicId().toString());
+            if (part != null) {
+                d.put("part", part);
+            }
+            activity.record(ActivityAction.VALIDATION_JOB_STARTED, Party.of(caller), Party.label(name), d);
+            return id;
+        });
+        runner.prepare(jobId);
+        return get(publicId);
+    }
+
     private List<Server> chosenServers(List<UUID> ids) {
         if (ids == null || ids.isEmpty()) {
             throw BadRequestException.validation("serverIds", "choose at least one server");
@@ -197,6 +272,9 @@ public class BulkJobService {
 
     public JobView stop(AuthPrincipal caller, UUID publicId) {
         Job j = find(publicId);
+        if (j.status() == Status.PREPARING) {
+            throw new ConflictException("This job is still copying the list's addresses. Stop it once it runs.");
+        }
         if (j.status() != Status.RUNNING) {
             throw new ConflictException("This job is not running.");
         }
@@ -208,6 +286,7 @@ public class BulkJobService {
                     Map.of("job", j.publicId().toString(), "pending", j.pending()));
         });
         runner.stop(j.id());
+        summaries.refreshLater(j.listId());
         return get(publicId);
     }
 
@@ -215,7 +294,8 @@ public class BulkJobService {
     public JobView resume(AuthPrincipal caller, UUID publicId, List<UUID> serverIds) {
         Job j = find(publicId);
         if (j.status() != Status.STOPPED) {
-            throw new ConflictException(j.status() == Status.RUNNING ? "This job is already running."
+            throw new ConflictException(j.status() == Status.RUNNING || j.status() == Status.PREPARING
+                    ? "This job is already running."
                     : "This job is finished. Retry unknown checks its unknown addresses again.");
         }
         if (j.pending() == 0) {
@@ -237,7 +317,7 @@ public class BulkJobService {
     /** The unknown addresses go back to "to check", in the same job (counted once, never twice). */
     public JobView retryUnknown(AuthPrincipal caller, UUID publicId, List<UUID> serverIds) {
         Job j = find(publicId);
-        if (j.status() == Status.RUNNING) {
+        if (j.status() == Status.RUNNING || j.status() == Status.PREPARING) {
             throw new ConflictException("Wait for the job to finish (or stop it) before retrying unknown.");
         }
         if (j.unknown() == 0) {
@@ -261,7 +341,7 @@ public class BulkJobService {
 
     public void delete(AuthPrincipal caller, UUID publicId) {
         Job j = find(publicId);
-        if (j.status() == Status.RUNNING || runner.isRunning(j.id())) {
+        if (j.status() == Status.RUNNING || j.status() == Status.PREPARING || runner.isRunning(j.id())) {
             throw new ConflictException("Stop the job and wait for it to stop before deleting it.");
         }
         tx.executeWithoutResult(s -> {
@@ -269,6 +349,7 @@ public class BulkJobService {
             activity.record(ActivityAction.VALIDATION_JOB_DELETED, Party.of(caller), Party.label(j.name()),
                     Map.of("job", j.publicId().toString(), "total", j.total()));
         });
+        summaries.refreshLater(j.listId());
     }
 
     private List<Server> currentServers(long jobId) {
@@ -329,10 +410,17 @@ public class BulkJobService {
             perMinute = recent == null ? 0 : Math.round(recent / 5f);
         }
         int done = j.total() - j.pending();
+        JobList from = null;
+        if ("LIST".equals(j.source())) {
+            List<JobList> found = j.listId() == null ? List.of() : jdbc.query("select public_id, name from lists where "
+                    + "id = ?", (rs, n) -> new JobList(rs.getObject(1, UUID.class), rs.getString(2), j.listPart()),
+                    j.listId());
+            from = found.isEmpty() ? new JobList(null, null, j.listPart()) : found.getFirst();
+        }
         return new JobView(j.publicId(), j.name(), j.source(), j.status(), j.total(), j.pending(), done, j.valid(),
                 j.bounce(), j.softBounce(), j.reject(), j.catchAll(), j.unknown(), j.duplicates(), j.invalid(),
                 j.retries(), j.message(), list, perMinute, j.actorLabel(), j.createdAt(), j.startedAt(),
-                j.finishedAt());
+                j.finishedAt(), from);
     }
 
     /** The job's counter column for a category (fixed names, never user input). */

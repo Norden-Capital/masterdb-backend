@@ -1,5 +1,6 @@
 package ca.nordencapital.masterdb.validation.bulk;
 
+import ca.nordencapital.masterdb.lists.ListRow;
 import ca.nordencapital.masterdb.validation.Category;
 import ca.nordencapital.masterdb.web.paging.PageResponse;
 import org.springframework.data.domain.Pageable;
@@ -35,21 +36,38 @@ public class ResultsService {
 
     /** One address of a job and its result ({@code category} null = still to check). */
     public record EmailResult(String email, Category category, Integer smtpCode, String mxHost, String reason,
-            String reply, String serverName, Instant checkedAt, String jobName, UUID jobId) {
+            String reply, String serverName, Instant checkedAt, String jobName, UUID jobId, List<String> fields) {
     }
 
     private static final RowMapper<EmailResult> ROW = (rs, n) -> new EmailResult(rs.getString("email"),
             rs.getString("category") == null ? null : Category.valueOf(rs.getString("category")),
             (Integer) rs.getObject("smtp_code"), rs.getString("mx_host"), rs.getString("reason"),
             rs.getString("reply"), rs.getString("server_name"), ts(rs.getTimestamp("checked_at")),
-            rs.getString("job_name"), rs.getObject("job_public_id", UUID.class));
+            rs.getString("job_name"), rs.getObject("job_public_id", UUID.class), null);
+
+    /** Same, with the list member's own cells (export of a job on a list). */
+    private static final RowMapper<EmailResult> ROW_WITH_FIELDS = (rs, n) -> {
+        EmailResult r = ROW.mapRow(rs, n);
+        return new EmailResult(r.email(), r.category(), r.smtpCode(), r.mxHost(), r.reason(), r.reply(),
+                r.serverName(), r.checkedAt(), r.jobName(), r.jobId(), ListRow.strings(rs.getString("member_fields")));
+    };
 
     // ---- one job -------------------------------------------------------------------
 
     /** {@code category} null = all; "PENDING" is passed as {@code pending = true}. */
     public PageResponse<EmailResult> emails(UUID jobId, Category category, boolean pending, String q,
             Pageable pageable) {
-        long id = jobs.find(jobId).id();
+        BulkJobService.Job job = jobs.find(jobId);
+        long id = job.id();
+        if (!pending && category == null && (q == null || q.isBlank())) {
+            // Every address of the job: seq is 1..total, so a page is read straight by its numbers.
+            long from = pageable.getOffset() + 1;
+            long to = pageable.getOffset() + pageable.getPageSize();
+            List<EmailResult> items = jdbc.query("select e.*, j.name as job_name, j.public_id as job_public_id from "
+                    + "validation_job_emails e join validation_jobs j on j.id = e.job_id where e.job_id = ? and e.seq "
+                    + "between ? and ? order by e.seq", ROW, id, from, to);
+            return page(items, (long) job.total(), pageable);
+        }
         List<Object> args = new ArrayList<>(List.of(id));
         StringBuilder where = new StringBuilder(" where e.job_id = ?");
         if (pending) {
@@ -74,6 +92,21 @@ public class ResultsService {
         return jobs.find(jobId).name();
     }
 
+    /**
+     * The columns of the list a job came from (its header, or "Column N"), or
+     * null for a pasted job, a list that is gone, or a one-column file.
+     */
+    public List<String> listColumns(UUID jobId) {
+        BulkJobService.Job job = jobs.find(jobId);
+        if (job.listId() == null) {
+            return null;
+        }
+        String json = jdbc.query("select columns::text from lists where id = ?", (rs, n) -> rs.getString(1),
+                job.listId()).stream().findFirst().orElse(null);
+        List<String> found = json == null ? null : ListRow.strings(json);
+        return found == null || found.size() <= 1 ? null : found;
+    }
+
     /** Streams the job's addresses of one category (or all, for the detailed CSV) in list order; returns the count. */
     public int export(UUID jobId, Category category, Consumer<EmailResult> sink) {
         long id = jobs.find(jobId).id();
@@ -82,15 +115,16 @@ public class ResultsService {
                 : " where e.job_id = ? and e.category = ?";
         Object[] args = category == null ? new Object[] {id} : new Object[] {id, category.name()};
         jdbc.query(con -> {
-            var ps = con.prepareStatement("select e.*, j.name as job_name, j.public_id as job_public_id from "
-                    + "validation_job_emails e join validation_jobs j on j.id = e.job_id" + where + " order by e.seq");
+            var ps = con.prepareStatement("select e.*, j.name as job_name, j.public_id as job_public_id, m.fields::text "
+                    + "as member_fields from validation_job_emails e join validation_jobs j on j.id = e.job_id left join "
+                    + "list_members m on m.id = e.member_id" + where + " order by e.seq");
             ps.setFetchSize(1000);
             for (int i = 0; i < args.length; i++) {
                 ps.setObject(i + 1, args[i]);
             }
             return ps;
         }, rs -> {
-            sink.accept(ROW.mapRow(rs, n[0]));
+            sink.accept(ROW_WITH_FIELDS.mapRow(rs, n[0]));
             n[0]++;
         });
         return n[0];

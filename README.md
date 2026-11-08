@@ -432,6 +432,7 @@ restart frees the claims of the old workers and resumes every RUNNING job. A ser
 | Call | Permission |
 | --- | --- |
 | `POST /api/v1/validation/jobs` `{name?, emails, serverIds}` → 201 | VALIDATION:RUN |
+| `POST /api/v1/validation/jobs` `{name?, listId, part?, serverIds}` → 201 (a list or one part, no size limit) | VALIDATION:RUN + LISTS:RUN |
 | `GET /api/v1/validation/jobs?status=` / `GET …/{id}` (counters, servers with checked / state / message, checks per minute) | VALIDATION:VIEW |
 | `POST …/{id}/stop`, `…/resume` `{serverIds?}`, `…/retry-unknown` `{serverIds?}` | VALIDATION:RUN |
 | `DELETE …/{id}` (not while running) | VALIDATION:DELETE |
@@ -443,7 +444,7 @@ Activity: `VALIDATION_JOB_STARTED`, `_STOPPED`, `_RESUMED`, `_RETRIED`, `_FINISH
 | Call | Permission |
 | --- | --- |
 | `GET /api/v1/validation/jobs/{id}/emails?category=VALID…UNKNOWN\|PENDING&q=` (list order, with reason, reply, server) | VALIDATION:VIEW |
-| `GET …/jobs/{id}/export?category=VALID…UNKNOWN` → `.txt`, one address per line; `category=DETAILS` → CSV (email, category, smtp_code, mail_server, server, checked_at, reason, provider_reply; UTF-8 BOM; cells starting with `= + - @` prefixed with `'`). Streamed; activity `VALIDATION_EXPORTED` | VALIDATION:EXPORT |
+| `GET …/jobs/{id}/export?category=VALID…UNKNOWN` → `.txt`, one address per line (`&format=csv`: the CSV below, one category); `category=DETAILS` → CSV (email, category, smtp_code, mail_server, server, checked_at, reason, provider_reply; UTF-8 BOM; cells starting with `= + - @` prefixed with `'`). For a job on a list the CSVs start with **the list's own columns** (its header) instead of `email`. Streamed; activity `VALIDATION_EXPORTED` | VALIDATION:EXPORT |
 | `GET /api/v1/validation/status` → `{addresses, jobs, categories: {VALID: n, …}}`: every address validated in any job, counted once by its **latest** result | VALIDATION:VIEW |
 | `GET /api/v1/validation/status/emails?category=&q=` (latest result per address, newest first) | VALIDATION:VIEW |
 
@@ -531,6 +532,22 @@ checked on the length and while streaming) end in FAILED with a sentence; a conn
 
 Unfinished uploads expire after 48 h (column choices never made after 6 days): FAILED, file
 deleted (hourly, `app.lists.cleanup-cron`).
+
+**Bulk validation on lists (job 4, V20).** A job can start from an imported list or one of its
+parts (`source` LIST, `list` = `{publicId, name, part}` in the job). Its addresses are never sent
+through the website: the job starts as **PREPARING** and `BulkRunner.prepare` copies them from
+`list_members` inside the database, 50,000 per statement, in list order, each address once (a
+repeat kept in the list is checked at its first place and counted in `duplicates`); the job's
+counters grow as it goes and `message` says how far ("Copying the list's addresses: 300,000 of
+1,000,000."). Then it runs like any job (rotation, pacing, stop/resume, retry unknown); workers
+take one address at a time from the database (`for update skip locked`), so a job of any size
+never sits in memory. A restart copies a PREPARING job again. While a job is PREPARING or RUNNING
+on a list, the list can't be deleted (409) and shows the job (`validation.running`, per part too).
+When a job on a list stops or finishes, the list's **latest results** are recounted in the
+background: the newest answer per address over every job of the list (`validation.counts`).
+Pasting stays for quick tests (at most 50,000). Each job address keeps its list member
+(`member_id`), so exports can give back the list's own columns; a page of a job's addresses with
+no filter is read by number (fast on a million).
 
 #### Dashboard (M2.4)
 

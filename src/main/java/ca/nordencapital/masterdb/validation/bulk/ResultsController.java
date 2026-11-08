@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -58,21 +59,25 @@ public class ResultsController {
     }
 
     @Operation(summary = "Export a job", description = "`category` one of the six: a text file, one address per "
-            + "line. `category=DETAILS`: a CSV of every checked address with its result, SMTP code, mail server, "
-            + "server, reason and the provider's reply. The export is logged.")
+            + "line (`format=csv`: a CSV like the detailed one, only that category). `category=DETAILS`: a CSV of every "
+            + "checked address with its result, SMTP code, mail server, server, reason and the provider's reply. For a "
+            + "job on a list, the CSVs start with the list's own columns (the file's header). The export is logged.")
     @RequiresPermission(module = Module.VALIDATION, action = Action.EXPORT)
     @GetMapping("/jobs/{id}/export")
     @Transactional
     public void export(@AuthenticationPrincipal AuthPrincipal caller, @PathVariable UUID id,
-            @RequestParam String category, HttpServletResponse response) throws IOException {
-        boolean details = "DETAILS".equalsIgnoreCase(category);
-        Category c = details ? null : category(category);
-        if (c == null && !details) {
+            @RequestParam String category, @RequestParam(required = false) String format,
+            HttpServletResponse response) throws IOException {
+        boolean all = "DETAILS".equalsIgnoreCase(category);
+        Category c = all ? null : category(category);
+        if (c == null && !all) {
             throw BadRequestException.validation("category", "must be one of the six categories or DETAILS");
         }
+        boolean details = all || "csv".equalsIgnoreCase(format);
         String jobName = results.jobName(id);
-        String file = slug(jobName) + "-" + (details ? "details.csv" : c.name().toLowerCase(Locale.ROOT)
-                .replace('_', '-') + ".txt");
+        List<String> columns = details ? results.listColumns(id) : null;
+        String file = slug(jobName) + "-" + (all ? "details.csv" : c.name().toLowerCase(Locale.ROOT)
+                .replace('_', '-') + (details ? ".csv" : ".txt"));
         response.setContentType((details ? "text/csv" : "text/plain") + "; charset=UTF-8");
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setHeader("Content-Disposition", "attachment; filename=\"" + file + "\"");
@@ -80,17 +85,24 @@ public class ResultsController {
         PrintWriter out = response.getWriter();
         int rows;
         if (details) {
-            out.print('﻿'); // so Excel reads UTF-8
-            out.print("email,category,smtp_code,mail_server,server,checked_at,reason,provider_reply\r\n");
-            rows = results.export(id, null, e -> out.print(String.join(",", csv(e.email()),
-                    csv(e.category().name()), csv(e.smtpCode() == null ? "" : e.smtpCode().toString()),
-                    csv(e.mxHost()), csv(e.serverName()), csv(e.checkedAt() == null ? "" : e.checkedAt().toString()),
-                    csv(e.reason()), csv(e.reply())) + "\r\n"));
+            out.print('\uFEFF'); // so Excel reads UTF-8
+            String result = "category,smtp_code,mail_server,server,checked_at,reason,provider_reply";
+            if (columns == null) {
+                out.print("email," + result + "\r\n");
+            } else {
+                out.print(String.join(",", columns.stream().map(ResultsController::csv).toList()) + "," + result
+                        + "\r\n");
+            }
+            int width = columns == null ? 1 : columns.size();
+            rows = results.export(id, c, e -> out.print(String.join(",", own(e, columns == null, width)) + ","
+                    + String.join(",", csv(e.category().name()), csv(e.smtpCode() == null ? "" : e.smtpCode()
+                            .toString()), csv(e.mxHost()), csv(e.serverName()), csv(e.checkedAt() == null ? ""
+                            : e.checkedAt().toString()), csv(e.reason()), csv(e.reply())) + "\r\n"));
         } else {
             rows = results.export(id, c, e -> out.print(e.email() + "\r\n"));
         }
         activity.record(ActivityAction.VALIDATION_EXPORTED, Party.of(caller), Party.label(jobName),
-                Map.of("job", id.toString(), "category", details ? "DETAILS" : c.name(), "rows", rows));
+                Map.of("job", id.toString(), "category", all ? "DETAILS" : c.name(), "rows", rows));
         out.flush();
     }
 
@@ -109,6 +121,23 @@ public class ResultsController {
     public PageResponse<EmailResult> latest(@RequestParam(required = false) String category,
             @RequestParam(required = false) String q, @ParameterObject PageParams params) {
         return results.latest(category(category), q, params.toPageable(Set.of()));
+    }
+
+    /** The address alone, or the list row's own cells (padded to the header's width). */
+    private static List<String> own(EmailResult e, boolean emailOnly, int width) {
+        if (emailOnly) {
+            return List.of(csv(e.email()));
+        }
+        List<String> cells = new java.util.ArrayList<>();
+        if (e.fields() == null) {
+            cells.add(csv(e.email()));
+        } else {
+            e.fields().forEach(f -> cells.add(csv(f)));
+        }
+        while (cells.size() < width) {
+            cells.add(csv(""));
+        }
+        return cells;
     }
 
     private static Category category(String v) {

@@ -43,7 +43,7 @@ public class BulkJobController {
     }
 
     public record StartRequest(@Size(max = 120) String name, @Size(max = 3_000_000) String emails,
-            @Size(max = 50) List<UUID> serverIds) {
+            @Size(max = 50) List<UUID> serverIds, UUID listId, Integer part) {
     }
 
     public record ServersRequest(@Size(max = 50) List<UUID> serverIds) {
@@ -51,14 +51,15 @@ public class BulkJobController {
 
     @Operation(summary = "Start a bulk job", description = "`emails`: one address per line (a CSV row's first "
             + "field with an @ is taken), at most 50,000 after dropping duplicates and malformed lines (both "
-            + "counted). 1 to 10 ready servers; the work rotates between them. Runs in the background: 201 with the "
-            + "job, then poll it.")
+            + "counted). Or `listId` (+ `part`): every address of an imported list or of one part, read in the "
+            + "database, no size limit (needs LISTS:RUN too). 1 to 10 ready servers; the work rotates between them. "
+            + "Runs in the background: 201 with the job, then poll it.")
     @RequiresPermission(module = Module.VALIDATION, action = Action.RUN)
     @PostMapping
     public ResponseEntity<JobView> start(@AuthenticationPrincipal AuthPrincipal caller,
             @Validated @RequestBody StartRequest body) {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.create(caller,
-                new CreateRequest(body.name(), body.emails(), body.serverIds())));
+                new CreateRequest(body.name(), body.emails(), body.serverIds(), body.listId(), body.part())));
     }
 
     @Operation(summary = "Jobs", description = "Newest first; `status` RUNNING, STOPPED or COMPLETED.")
