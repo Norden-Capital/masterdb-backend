@@ -15,13 +15,10 @@ import java.net.http.HttpResponse;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Browsers may call the API only from the website, with the proxy secret on
- * (production settings). Real Tomcat, so refusals go through /error.
+ * Browsers may call the API only from the website (production settings).
+ * Real Tomcat, so refusals go through /error.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "app.proxy.required=true",
-        "app.proxy.secret=" + ProxySecretFilterTest.SECRET,
-})
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class CorsConfigTest {
 
     static final String FRONTEND = "https://db.nordencapital.ca";
@@ -49,7 +46,6 @@ class CorsConfigTest {
     HttpResponse<String> get(String origin) throws Exception {
         return http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/status"))
                 .header("Origin", origin)
-                .header(ProxySecretFilter.HEADER, ProxySecretFilterTest.SECRET)
                 .build(), HttpResponse.BodyHandlers.ofString());
     }
 
@@ -90,7 +86,7 @@ class CorsConfigTest {
     }
 
     @Test
-    void requestFromAnotherSiteIsRefusedEvenWithTheSecret() throws Exception {
+    void requestFromAnotherSiteIsRefused() throws Exception {
         HttpResponse<String> response = get(OTHER);
         assertThat(response.statusCode()).isEqualTo(403);
         assertThat(response.headers().firstValue("Access-Control-Allow-Origin")).isEmpty();

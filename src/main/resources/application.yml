@@ -65,22 +65,6 @@ app:
   docs:
     enabled: ${APP_DOCS_ENABLED:false}
 
-  # Only the MasterDB website may call this API (ProxySecretFilter). Its server
-  # sends X-Proxy-Secret with this value on every request; anything else gets
-  # 401 PROXY_SECRET_INVALID. Only /actuator/health is open. The value is a
-  # GitHub secret written to the server's .env by the deploy, and the same value
-  # is set in Vercel. FAIL CLOSED: with no secret (or under 32 characters) the
-  # application refuses to start. `required: false` is set only by the `local`
-  # profile and the tests; there, no secret means the check is off.
-  proxy:
-    secret: ${PROXY_SECRET:}
-    required: true
-    # TEMPORARY off switch (owner's request, 2026-11-10, while the UI is being
-    # built): false = requests without the secret are let through. Default true.
-    # Set by the GitHub repository variable APP_PROXY_ENFORCED; delete it before
-    # go-live (todo.txt).
-    enforced: ${APP_PROXY_ENFORCED:true}
-
   # The first account, the Owner (auth/bootstrap/OwnerBootstrap). Read once at
   # startup and used only if the users table is empty; ignored forever after.
   # GitHub secrets written to the server's .env by the deploy. NO defaults on

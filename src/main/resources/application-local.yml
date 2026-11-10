@@ -7,11 +7,6 @@ app:
   docs:
     enabled: true
 
-  # No PROXY_SECRET needed on your PC: without one the check is off here (and
-  # only here). Set PROXY_SECRET in your environment to try the check locally.
-  proxy:
-    required: false
-
   # The Next.js dev server too.
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:https://db.nordencapital.ca},http://localhost:3000

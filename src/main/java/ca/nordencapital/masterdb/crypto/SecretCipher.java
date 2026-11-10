@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
  * <p><b>Key:</b> {@code ENCRYPTION_KEY}, 64 hex characters (32 bytes), a
  * GitHub secret written to the server's .env. Hex rather than base64 so the
  * value never contains {@code + / =} that a .env file could mangle.
- * <b>Fail closed</b> like PROXY_SECRET: without a valid key the application
+ * <b>Fail closed</b>: without a valid key the application
  * refuses to start, unless {@code app.encryption.required=false} (only the
  * {@code local} profile and the tests); there, a missing key is replaced by a
  * random one for this run, so 2FA enrolments do not survive a restart.

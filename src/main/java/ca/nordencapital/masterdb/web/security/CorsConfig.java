@@ -24,14 +24,13 @@ import java.util.List;
  * {@code http://localhost:3000}.
  *
  * <p>In practice no browser calls this server: the website's own server
- * forwards {@code /api/...} here with the proxy secret (see ProxySecretFilter),
- * and that is not a CORS request. This is the second lock on the door, for any
- * browser that tries anyway. Credentials are allowed because the login (M1)
+ * forwards {@code /api/...} here, and that is not a CORS request (the website
+ * drops the browser's Origin). This keeps other websites' pages from calling
+ * the API from a visitor's browser. Credentials are allowed because the login (M1)
  * will use an HttpOnly cookie.
  *
- * <p>A filter, not WebMvcConfigurer: it runs before ProxySecretFilter, so a
- * preflight from the website is answered rather than refused for having no
- * secret (browsers never send custom headers on a preflight). A refused origin
+ * <p>A filter, not WebMvcConfigurer: it runs before Spring Security, so a
+ * preflight is answered rather than refused for having no session. A refused origin
  * gets 403 problem+json like every other error, not Spring's plain-text body.
  */
 @Configuration
@@ -58,7 +57,7 @@ public class CorsConfig {
         FilterRegistrationBean<CorsFilter> bean = new FilterRegistrationBean<>(filter);
         bean.setName("corsFilter");
         // After RequestIdFilter and RequestLoggingFilter (refusals are logged with
-        // their id), before ProxySecretFilter.
+        // their id), before the login rate limit and Spring Security.
         bean.setOrder(ORDER);
         return bean;
     }

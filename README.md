@@ -50,7 +50,6 @@ Running the jar some other way (IDE, `java -jar`): add the profile
 | `SPRING_DATASOURCE_USERNAME` | `masterdb` |
 | `SPRING_DATASOURCE_PASSWORD` | `masterdb-local-dev` |
 | `APP_DOCS_ENABLED` | `false` (`true` in the `local` profile) |
-| `PROXY_SECRET` | none: **required in production** (the app refuses to start without it, or with under 32 characters). In the `local` profile, unset = check off |
 | `APP_CORS_ALLOWED_ORIGINS` | `https://db.nordencapital.ca` (the `local` profile adds `http://localhost:3000`) |
 | `BOOTSTRAP_OWNER_EMAIL`, `BOOTSTRAP_OWNER_PASSWORD`, `BOOTSTRAP_OWNER_NAME` | none, optional: the first account (see "Users & owner bootstrap"). Unset = no account and a warning |
 | `ENCRYPTION_KEY` | none: **required in production** (64 hex characters; encrypts 2FA secrets; the app refuses to start without it). In the `local` profile, unset = a random key per run. **Never change it once set** |
@@ -65,42 +64,17 @@ Running the jar some other way (IDE, `java -jar`): add the profile
 | `APP_AUTH_LOCKOUT_MAX_ATTEMPTS`, `APP_AUTH_LOCKOUT_DURATION` | `5`, `15m` |
 | `APP_AUTH_RATE_LIMIT_PER_MINUTE`, `APP_AUTH_RATE_LIMIT_PER_HOUR` | `10`, `50` login attempts per client address |
 
-### Only the website may call the API
+### Who may call the API (proxy secret removed for now)
 
-The browser never calls this server. It calls `/api/...` on the website, whose server
-(the Route Handler `app/api/[...path]/route.ts` in masterdb-frontend) forwards the
-request here with the header `X-Proxy-Secret: <PROXY_SECRET>`.
-`web/security/ProxySecretFilter` refuses every request without the right value with
-401 `PROXY_SECRET_INVALID` (same answer whether the header was missing or wrong;
-constant-time comparison; the value is never logged). Only `/actuator/health` is open,
-for the deploy check. The same value lives in three places: the GitHub secret
-`PROXY_SECRET` (written to the server's `.env` by the deploy), the Vercel variable
-`PROXY_SECRET`, and `.env.local` of masterdb-frontend on a developer PC.
+The browser calls `/api/...` on the website, whose server (the Route Handler
+`app/api/[...path]/route.ts` in masterdb-frontend) forwards the request here.
 
-Fail closed: the jar's default is `app.proxy.required: true`, so a server without the
-secret does not start (and the deploy stops earlier, with a clear message, when the
-GitHub secret is empty). Only the `local` profile and the tests set `required: false`.
-To try the check locally, set `PROXY_SECRET` before `./mvnw spring-boot:run`.
-
-**Temporary off switch** (`APP_PROXY_ENFORCED`, default `true`). With `false`, requests
-without the right secret are let through; the secret is still required to start, and only
-requests that carry it are marked verified. The backend logs a WARN at startup while it is
-off. It is a GitHub repository **variable** (Settings > Secrets and variables > Actions >
-Variables), written to the server's `.env` by the deploy; only the exact word `false`
-switches the check off. Setting it by hand on the server does not last: every deploy
-rewrites `.env`.
-
-```powershell
-gh variable set APP_PROXY_ENFORCED -b false --repo Norden-Capital/masterdb-backend   # off, then redeploy
-gh variable delete APP_PROXY_ENFORCED --repo Norden-Capital/masterdb-backend        # back on, then redeploy
-```
-
-Requests that carried the right secret are marked (`ProxySecretFilter.isVerified`); only
-those may name the visitor's address in `X-Client-IP` (see "Authentication").
-
-`web/security/CorsConfig` lets browsers call the API only from
-`APP_CORS_ALLOWED_ORIGINS` (GET, POST, PUT, PATCH, DELETE, credentials allowed for the
-M1 login cookie). Refusals are 403 problem+json.
+**Removed 2026-11-10, at the owner's request, while the app is being built:** the
+`X-Proxy-Secret` check that let only the website's server call this API. Anyone who
+knows the address can call it directly; endpoints that need a session still need one,
+and CORS still stops other websites' pages from calling it from a visitor's browser.
+Put it back before go-live (todo.txt): commit `a9cc93c` has the last version of
+`ProxySecretFilter`, its tests and the deploy wiring.
 
 ### Users & owner bootstrap
 
@@ -141,7 +115,7 @@ never logged; the email only masked: `owner created: j***@nordencapital.ca (id <
 On the server the three values are GitHub secrets that the deploy writes to
 `/opt/masterdb/.env` (single-quoted, so the deploy refuses values containing `'`, `\`
 or a line break) and `docker-compose.yml` passes to the container. They are optional:
-unlike `PROXY_SECRET`, an empty value does not stop the deploy, because the password
+unlike `ENCRYPTION_KEY`, an empty value does not stop the deploy, because the password
 secret should be deleted once the Owner exists. After that, the next deploy removes it
 from the server's `.env` too.
 
@@ -658,19 +632,20 @@ code tells the two 429s apart.
 The login rate limit, `user_sessions.ip` and the audit lines need the visitor's address,
 but every request arrives from Vercel. The website's proxy therefore sends `X-Client-IP`
 (from Vercel's `x-real-ip`, which Vercel sets itself) and drops any `X-Client-IP` /
-`X-Forwarded-For` the caller sent. `web/security/ClientIp` believes `X-Client-IP` **only
-when the same request had the right proxy secret**; otherwise it uses the connection's
-address (Caddy overwrites an outside `X-Forwarded-For`, and Tomcat accepts the header only
-from the local proxy). A raw `X-Forwarded-For` is never read.
+`X-Forwarded-For` the caller sent. `web/security/ClientIp` believes a well-formed
+`X-Client-IP`; without one it uses the connection's address (Caddy overwrites an outside
+`X-Forwarded-For`, and Tomcat accepts the header only from the local proxy). A raw
+`X-Forwarded-For` is never read. **Known weakness while the proxy secret is removed:**
+anyone calling the API directly can send any `X-Client-IP`, so the per-address login
+limit can be dodged (the per-account lock still holds) and the session list shows
+whatever address was sent.
 
 #### CSRF
 
-The cookie is `SameSite=Lax`, so browsers do not send it on cross-site POSTs. On top of
-that, the website's proxy (`app/api/[...path]/route.ts` + `lib/proxy-guards.ts` in
-masterdb-frontend) refuses any write whose `Origin` or `Sec-Fetch-Site` is not this site
-with 403 `CSRF_REJECTED`, before forwarding. The backend cannot check `Origin` itself (the
-proxy drops it), and no browser can reach the backend directly (proxy secret), so Spring
-Security's CSRF tokens are off.
+The cookie belongs to the website's domain and is `SameSite=Lax`, so browsers do not send
+it on cross-site POSTs, and CORS refuses other sites' pages calling this server directly.
+Spring Security's CSRF tokens are off. (The website's own same-site check on writes is
+also removed for now, see masterdb-frontend.)
 
 #### Audit log lines
 
@@ -714,7 +689,7 @@ Retention: entries older than `app.activity.retention` (365 days) are deleted da
 
 #### Filter order
 
-RequestIdFilter → RequestLoggingFilter → CORS → ProxySecretFilter → LoginRateLimitFilter →
+RequestIdFilter → RequestLoggingFilter → CORS → LoginRateLimitFilter →
 docs-off filter → Spring Security (session cookie, access rules) → controllers.
 
 #### Try it locally
@@ -729,9 +704,9 @@ java -cp "target/test-classes;target/classes;$(cat target/cp.txt)" ca.nordencapi
 (`;` separates the classpath on Windows, `:` elsewhere.) Set `BOOTSTRAP_OWNER_EMAIL` /
 `_PASSWORD` in the environment first to get an Owner. Emails are not sent locally: the
 invite / reset link is printed in full in the log. Then run the frontend with
-`BACKEND_URL=http://localhost:8080` and any `PROXY_SECRET` (the check is off locally).
+`BACKEND_URL=http://localhost:8080`.
 
-Or with Docker: `./mvnw spring-boot:run` (the `local` profile: no proxy secret, cookie not `Secure`). Create
+Or with Docker: `./mvnw spring-boot:run` (the `local` profile: cookie not `Secure`). Create
 the first account with the `BOOTSTRAP_OWNER_*` variables, then sign in through the frontend
 pointed at `http://localhost:8080`.
 
@@ -772,7 +747,6 @@ is `application/problem+json` ([RFC 9457](https://www.rfc-editor.org/rfc/rfc9457
 | `MALFORMED_JSON` | 400 | Body missing, not JSON, or the wrong JSON shape |
 | `BAD_REQUEST` | 400 | `BadRequestException` and other client errors |
 | `UNAUTHORIZED` / `FORBIDDEN` | 401 / 403 | Reserved for auth (M1); `FORBIDDEN` also for a refused CORS origin |
-| `PROXY_SECRET_INVALID` | 401 | The request did not come through the website (`X-Proxy-Secret` missing or wrong) |
 | `NOT_FOUND` | 404 | Unknown route, `NotFoundException` |
 | `METHOD_NOT_ALLOWED` | 405 | Wrong HTTP method (the `Allow` header lists the right ones) |
 | `NOT_ACCEPTABLE` | 406 | `Accept` the endpoint cannot produce |
@@ -994,6 +968,6 @@ Every push to `main` runs `.github/workflows/ci-cd.yml`: build and test, push th
 image to `ghcr.io/norden-capital/masterdb-backend`, then deploy over SSH to
 `/opt/masterdb` on the VPS. The server is prepared once with `deploy/vps-setup.sh`.
 
-Repository secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `POSTGRES_PASSWORD`, `PROXY_SECRET`.
+Repository secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `POSTGRES_PASSWORD`.
 Optional: `BOOTSTRAP_OWNER_EMAIL`, `BOOTSTRAP_OWNER_NAME`, `BOOTSTRAP_OWNER_PASSWORD`
 (the first account; delete the password one once the Owner exists).

@@ -33,8 +33,6 @@ public enum ErrorCode {
     CURRENT_PASSWORD_INCORRECT,
     /** Too many login attempts from one address; {@code Retry-After} says when to try again. */
     RATE_LIMITED,
-    /** The request did not come through the MasterDB website (X-Proxy-Secret missing or wrong; which one is not said). */
-    PROXY_SECRET_INVALID,
     /** Signed in, but not allowed to do this. */
     FORBIDDEN,
     NOT_FOUND,

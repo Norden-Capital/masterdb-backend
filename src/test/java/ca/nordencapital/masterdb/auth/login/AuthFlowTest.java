@@ -294,18 +294,15 @@ class AuthFlowTest {
         assertThat(limited.headers().firstValue("Retry-After")).hasValue(String.valueOf(55 * 60));
     }
 
-    /** With no valid proxy secret, a client cannot pick its own address. */
+    /**
+     * Known weakness while the proxy secret is removed (see ClientIp): a client
+     * can pick its own address. Flip this back when the secret returns.
+     */
     @Test
-    void xClientIpIsIgnoredWithoutAValidProxySecret() throws Exception {
-        for (int i = 0; i < 10; i++) {
-            client.login("z" + i + "@example.com", WRONG, "X-Client-IP", "203.0.113." + i);
-        }
-        HttpResponse<String> limited = client.login(OWNER, PASSWORD, "X-Client-IP", "198.51.100.1");
-        assertThat(limited.statusCode()).isEqualTo(429);
-
+    void xClientIpIsBelievedWithoutAProxySecret() throws Exception {
         limiter.clear();
         twoFactor.signIn(OWNER, PASSWORD, "X-Client-IP", "203.0.113.50");
-        assertThat(jdbc.queryForObject("select ip from user_sessions", String.class)).isEqualTo("127.0.0.1");
+        assertThat(jdbc.queryForObject("select ip from user_sessions", String.class)).isEqualTo("203.0.113.50");
     }
 
     // ---- session ------------------------------------------------------------------------

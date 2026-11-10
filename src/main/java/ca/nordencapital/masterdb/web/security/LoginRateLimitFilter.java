@@ -23,9 +23,8 @@ import java.util.OptionalLong;
  * the body is read or a password hashed. Over the limit: 429
  * {@code RATE_LIMITED} problem+json with {@code Retry-After} (seconds).
  *
- * <p>Runs right after ProxySecretFilter, so the address comes from
- * {@link ClientIp} with the request already marked as coming from the website
- * (or not), and before Spring Security. Registered by SecurityConfig (not a
+ * <p>Runs after CORS and before Spring Security; the address comes from
+ * {@link ClientIp}. Registered by SecurityConfig (not a
  * {@code @Component}, so web-slice tests do not pull it in).
  */
 public class LoginRateLimitFilter extends OncePerRequestFilter {

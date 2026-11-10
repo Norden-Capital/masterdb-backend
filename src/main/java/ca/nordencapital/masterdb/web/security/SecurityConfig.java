@@ -27,7 +27,7 @@ import java.io.IOException;
  * Who may call what.
  *
  * <p>Filter order on every request (lowest first): RequestIdFilter,
- * RequestLoggingFilter, CORS, ProxySecretFilter, LoginRateLimitFilter, the API
+ * RequestLoggingFilter, CORS, LoginRateLimitFilter, the API
  * docs 404 filter, then this Spring Security chain (Boot's default order -100),
  * which reads the session cookie ({@link SessionAuthenticationFilter}) and
  * applies the rules below.
@@ -43,13 +43,12 @@ import java.io.IOException;
  * <p>Stateless: no HTTP session, no JSESSIONID; the {@code md_session} cookie
  * and its database row are the only state. 401 and 403 answer in the usual
  * problem+json (codes {@code UNAUTHENTICATED}, {@code FORBIDDEN}) through
- * /error, like ProxySecretFilter's refusals.
+ * /error, like every other error.
  *
- * <p><b>CSRF</b> is off here on purpose: browsers never reach this server (the
- * proxy secret keeps them out), and the website's proxy refuses cross-site
- * writes before forwarding them (Origin / Sec-Fetch-Site check in
- * masterdb-frontend's {@code app/api/[...path]/route.ts}), on top of the
- * cookie's SameSite=Lax. CORS is handled by CorsConfig's filter, earlier.
+ * <p><b>CSRF</b> is off here on purpose: the session cookie belongs to the
+ * website's domain and is SameSite=Lax, so another site's page cannot make a
+ * browser send it on a write, and CORS (CorsConfig) refuses other sites'
+ * pages calling this server directly. CORS is handled by CorsConfig's filter, earlier.
  */
 @Configuration
 @EnableWebSecurity
