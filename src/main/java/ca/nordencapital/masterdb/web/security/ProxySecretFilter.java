@@ -38,6 +38,14 @@ import java.security.MessageDigest;
  * profile (application-local.yml) and the tests. There, with no secret, the
  * check is off; with one, it is enforced as in production.
  *
+ * <p><b>Temporary off switch.</b> {@code app.proxy.enforced=false}
+ * ({@code APP_PROXY_ENFORCED}, a GitHub repository variable written to .env by
+ * the deploy) lets requests without the right secret through, for UI work
+ * against the live API. The secret is still required to start, and a request
+ * that carries it is still marked verified, so {@link ClientIp} keeps trusting
+ * only the website. Default true; a WARN is logged at startup while it is off.
+ * Remove the variable before go-live (todo.txt).
+ *
  * <p>The header's value is never logged. The comparison is constant-time.
  * A request that passed is marked ({@link #isVerified}); only then does
  * {@link ClientIp} believe the website's {@code X-Client-IP}.
@@ -61,9 +69,11 @@ public class ProxySecretFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(ProxySecretFilter.class);
 
     private final byte[] secret;
+    private final boolean enforced;
 
     public ProxySecretFilter(@Value("${app.proxy.secret:}") String secret,
-            @Value("${app.proxy.required:true}") boolean required) {
+            @Value("${app.proxy.required:true}") boolean required,
+            @Value("${app.proxy.enforced:true}") boolean enforced) {
         String value = secret == null ? "" : secret.trim();
         if (required && value.length() < MIN_LENGTH) {
             // Never put the value in the message: only say what is wrong with it.
@@ -75,6 +85,11 @@ public class ProxySecretFilter extends OncePerRequestFilter {
             log.warn("PROXY_SECRET is not set: the proxy-secret check is OFF (allowed only in local/test).");
         }
         this.secret = value.getBytes(StandardCharsets.UTF_8);
+        this.enforced = enforced;
+        if (!enforced && !value.isEmpty()) {
+            log.warn("APP_PROXY_ENFORCED=false: the proxy-secret check is OFF. Anyone can call this API directly."
+                    + " Temporary, for UI work only: remove the GitHub variable APP_PROXY_ENFORCED and redeploy.");
+        }
     }
 
     @Override
@@ -91,6 +106,12 @@ public class ProxySecretFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         if (matches(request.getHeader(HEADER))) {
             request.setAttribute(VERIFIED_ATTRIBUTE, Boolean.TRUE);
+            chain.doFilter(request, response);
+            return;
+        }
+        if (!enforced) {
+            // Switched off: let it through, but NOT verified (ClientIp ignores
+            // its X-Client-IP).
             chain.doFilter(request, response);
             return;
         }

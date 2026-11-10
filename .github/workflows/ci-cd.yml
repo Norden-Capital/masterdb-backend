@@ -119,6 +119,9 @@ jobs:
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           PROXY_SECRET: ${{ secrets.PROXY_SECRET }}
+          # TEMPORARY: repository VARIABLE (not a secret). "false" switches the
+          # proxy-secret check off; unset or anything else keeps it on.
+          APP_PROXY_ENFORCED: ${{ vars.APP_PROXY_ENFORCED }}
           # Encrypts 2FA secrets at rest (64 hex characters). Required.
           ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
           # Optional: emails through Resend. Empty = the app runs, emails are only logged.
@@ -132,7 +135,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: POSTGRES_PASSWORD,PROXY_SECRET,ENCRYPTION_KEY,RESEND_API_KEY,BOOTSTRAP_OWNER_EMAIL,BOOTSTRAP_OWNER_PASSWORD,BOOTSTRAP_OWNER_NAME,GHCR_TOKEN
+          envs: POSTGRES_PASSWORD,PROXY_SECRET,APP_PROXY_ENFORCED,ENCRYPTION_KEY,RESEND_API_KEY,BOOTSTRAP_OWNER_EMAIL,BOOTSTRAP_OWNER_PASSWORD,BOOTSTRAP_OWNER_NAME,GHCR_TOKEN
           script: |
             set -e
 
@@ -171,12 +174,16 @@ jobs:
             refuse_unsafe BOOTSTRAP_OWNER_PASSWORD "$BOOTSTRAP_OWNER_PASSWORD"
             refuse_unsafe BOOTSTRAP_OWNER_NAME "$BOOTSTRAP_OWNER_NAME"
 
+            # Only the exact word "false" turns the check off; anything else = on.
+            [ "$APP_PROXY_ENFORCED" = "false" ] || APP_PROXY_ENFORCED=true
+
             # docker compose reads this automatically from the working directory.
             # umask 077: only the deploy user can read it.
             umask 077
             cat > .env <<EOF
             POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
             PROXY_SECRET=${PROXY_SECRET}
+            APP_PROXY_ENFORCED=${APP_PROXY_ENFORCED}
             ENCRYPTION_KEY=${ENCRYPTION_KEY}
             RESEND_API_KEY=${RESEND_API_KEY}
             BOOTSTRAP_OWNER_EMAIL='${BOOTSTRAP_OWNER_EMAIL}'

@@ -75,6 +75,11 @@ app:
   proxy:
     secret: ${PROXY_SECRET:}
     required: true
+    # TEMPORARY off switch (owner's request, 2026-11-10, while the UI is being
+    # built): false = requests without the secret are let through. Default true.
+    # Set by the GitHub repository variable APP_PROXY_ENFORCED; delete it before
+    # go-live (todo.txt).
+    enforced: ${APP_PROXY_ENFORCED:true}
 
   # The first account, the Owner (auth/bootstrap/OwnerBootstrap). Read once at
   # startup and used only if the users table is empty; ignored forever after.

@@ -131,6 +131,84 @@ class ProxySecretFilterTest {
         }
     }
 
+    /** APP_PROXY_ENFORCED=false: requests without the secret pass, but are not verified. */
+    @Nested
+    @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+            "app.proxy.required=true",
+            "app.proxy.secret=" + SECRET,
+            "app.proxy.enforced=false",
+    })
+    @ExtendWith(OutputCaptureExtension.class)
+    class SwitchedOff {
+
+        @DynamicPropertySource
+        static void database(DynamicPropertyRegistry registry) {
+            TestDatabase.register(registry);
+        }
+
+        @LocalServerPort
+        int port;
+
+        final HttpClient http = HttpClient.newHttpClient();
+
+        HttpResponse<String> get(String secret) throws Exception {
+            HttpRequest.Builder request = HttpRequest.newBuilder(
+                    URI.create("http://localhost:" + port + "/api/v1/status"));
+            if (secret != null) {
+                request.header(ProxySecretFilter.HEADER, secret);
+            }
+            return http.send(request.build(), HttpResponse.BodyHandlers.ofString());
+        }
+
+        @Test
+        void requestsWithoutOrWithWrongSecretPass() throws Exception {
+            assertThat(get(null).statusCode()).isEqualTo(200);
+            assertThat(get("wrong-value").statusCode()).isEqualTo(200);
+            assertThat(get(SECRET).statusCode()).isEqualTo(200);
+        }
+
+        @Test
+        void startupWarnsLoudly(CapturedOutput output) throws Exception {
+            // The context is shared across tests, so the WARN may have been
+            // printed before this method's capture started: check a fresh one.
+            new ApplicationContextRunner()
+                    .withUserConfiguration(ProxySecretFilter.class)
+                    .withPropertyValues("app.proxy.secret=" + SECRET, "app.proxy.enforced=false")
+                    .run(context -> assertThat(context).hasNotFailed());
+            assertThat(output).contains("APP_PROXY_ENFORCED=false").doesNotContain(SECRET);
+        }
+    }
+
+    /** Only a request carrying the secret is verified, even with the check off. */
+    @Nested
+    class Verification {
+
+        @Test
+        void onlyTheRightSecretMarksTheRequestVerified() throws Exception {
+            ProxySecretFilter filter = new ProxySecretFilter(SECRET, true, false);
+            for (String sent : new String[] {null, "wrong-value", SECRET}) {
+                org.springframework.mock.web.MockHttpServletRequest request =
+                        new org.springframework.mock.web.MockHttpServletRequest("GET", "/api/v1/status");
+                request.setServletPath("/api/v1/status");
+                if (sent != null) {
+                    request.addHeader(ProxySecretFilter.HEADER, sent);
+                }
+                org.springframework.mock.web.MockHttpServletResponse response =
+                        new org.springframework.mock.web.MockHttpServletResponse();
+                filter.doFilter(request, response, new org.springframework.mock.web.MockFilterChain());
+                assertThat(response.getStatus()).as(String.valueOf(sent)).isEqualTo(200);
+                assertThat(ProxySecretFilter.isVerified(request)).as(String.valueOf(sent)).isEqualTo(SECRET.equals(sent));
+            }
+        }
+
+        @Test
+        void enforcedIsTheDefault() throws Exception {
+            YamlPropertySourceLoader yaml = new YamlPropertySourceLoader();
+            PropertySource<?> main = yaml.load("main", new ClassPathResource("application.yml")).getFirst();
+            assertThat(main.getProperty("app.proxy.enforced")).hasToString("${APP_PROXY_ENFORCED:true}");
+        }
+    }
+
     /** The check is never silently off in production. */
     @Nested
     class FailClosed {

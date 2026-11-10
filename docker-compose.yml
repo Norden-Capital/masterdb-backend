@@ -58,6 +58,9 @@ services:
       # Only the website may call the API (ProxySecretFilter). From the .env the
       # deploy writes; no fallback on purpose: empty = the backend refuses to start.
       - PROXY_SECRET=${PROXY_SECRET:-}
+      # TEMPORARY off switch for that check (GitHub variable APP_PROXY_ENFORCED).
+      # Default on.
+      - APP_PROXY_ENFORCED=${APP_PROXY_ENFORCED:-true}
       # Key for 2FA secrets at rest (SecretCipher). No fallback: empty = the
       # backend refuses to start.
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}

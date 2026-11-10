@@ -82,6 +82,19 @@ secret does not start (and the deploy stops earlier, with a clear message, when 
 GitHub secret is empty). Only the `local` profile and the tests set `required: false`.
 To try the check locally, set `PROXY_SECRET` before `./mvnw spring-boot:run`.
 
+**Temporary off switch** (`APP_PROXY_ENFORCED`, default `true`). With `false`, requests
+without the right secret are let through; the secret is still required to start, and only
+requests that carry it are marked verified. The backend logs a WARN at startup while it is
+off. It is a GitHub repository **variable** (Settings > Secrets and variables > Actions >
+Variables), written to the server's `.env` by the deploy; only the exact word `false`
+switches the check off. Setting it by hand on the server does not last: every deploy
+rewrites `.env`.
+
+```powershell
+gh variable set APP_PROXY_ENFORCED -b false --repo Norden-Capital/masterdb-backend   # off, then redeploy
+gh variable delete APP_PROXY_ENFORCED --repo Norden-Capital/masterdb-backend        # back on, then redeploy
+```
+
 Requests that carried the right secret are marked (`ProxySecretFilter.isVerified`); only
 those may name the visitor's address in `X-Client-IP` (see "Authentication").
 
